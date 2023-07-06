@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "devi-ms-thesis"
+version = "0.1.0"
+description = "master's thesis source code"
+authors = ["terminaldweller <devi@terminaldweller.com>"]
+license = "GPL3.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^1.24.3"
+torch = "^1.13"
+torchattacks = "^3.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
