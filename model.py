@@ -195,12 +195,14 @@ def get_final_data(data, saved_dict=saved_dict, mode_dict=mode_dict):
 # x_train.shape, x_test.shape
 # x_test = get_final_data(x_test)
 x_test = get_final_data(x_test)
-x_train.shape, x_test.shape
+# x_train.shape, x_test.shape
 
 import torch
 
 x_test = x_test.sample(frac=0.1)
 y_test = y_test.sample(frac=0.1)
+# x_test = x_train.sample(frac=0.1)
+# y_test = y_train.sample(frac=0.1)
 X = torch.from_numpy(x_test.values).type(torch.float)
 Y = torch.from_numpy(y_test.values).type(torch.float)
 
@@ -242,6 +244,10 @@ device = torch.device("cpu")
 #         x = self.softmax(x)
 #         return x
 
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
+
 
 class CNNModel(nn.Module):
     def __init__(self, input_size):
@@ -272,17 +278,54 @@ class CNNModel(nn.Module):
         return x
 
 
+class DNNModel(nn.Module):
+    def __init__(self, input_size):
+        super(DNNModel, self).__init__()
+        self.fc1 = nn.Linear(input_size, 256)
+        self.fc2 = nn.Linear(256, 512)
+        self.fc3 = nn.Linear(512, 128)
+        self.fc4 = nn.Linear(128, 32)
+        self.fc5 = nn.Linear(32, 1)
+        self.relu = nn.ReLU()
+        self.softmax = nn.Softmax(dim=1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x = self.relu(self.fc1(x))
+        # x = self.relu(self.fc2(x))
+        # x = self.relu(self.fc3(x))
+        # x = self.relu(self.fc4(x))
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
+        x = self.fc4(x)
+        x = self.fc5(x)
+        x = self.sigmoid(x)
+        # x = self.softmax(x)
+        return x
+
+
+class RNNModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers):
+        super(RNNModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        out, _ = self.rnn(x, h0)
+        out = self.fc(out[:, -1, :])
+        out = self.sigmoid(out)
+        return out
+
+
 # model = NIDSCNN().to(device)
-model = CNNModel(197).to(device)
-
-
-from sklearn.model_selection import train_test_split
-
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
-X_train = X_train
-Y_train = Y_train
-Y_test = Y_test
-len(X_train), len(Y_train), len(X_test), len(Y_test)
+# model = CNNModel(197).to(device)
+model = DNNModel(197).to(device)
+# model = RNNModel(197, 128, 5)
 
 
 class UNSW_Dataset(Dataset):
@@ -299,16 +342,31 @@ class UNSW_Dataset(Dataset):
         return x, y
 
 
-train_dataset = UNSW_Dataset(X_train, Y_train)
-test_dataset = UNSW_Dataset(X_test, Y_test)
+# train_dataset = UNSW_Dataset(X_train, Y_train)
+# test_dataset = UNSW_Dataset(X_test, Y_test)
+print(X_train.unsqueeze(1).shape)
+print(Y_train.unsqueeze(1).shape)
+# use for everything else
+# train_dataset = torch.utils.data.TensorDataset(
+#     X_train.unsqueeze(1), Y_train.unsqueeze(1)
+# )
+# use for rnn
+train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
+test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
-batch_size = 64
-num_epochs = 30
+# batch_size = 64
+batch_size = 16
+num_epochs = 10
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+# criterion = nn.CrossEntropyLoss()
+criterion = nn.BCELoss()
+# criterion = nn.BCEWithLogitsLoss()
+# optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.SGD(model.parameters(), lr=0.001)
+# optimizer = optim.Adagrad(model.parameters(), lr=0.001)
+# optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 
 for epoch in range(num_epochs):
     running_loss = 0.0
@@ -320,25 +378,58 @@ for epoch in range(num_epochs):
         # print(inputs.shape)
 
         # Zero the gradients
+        optimizer.zero_grad()
 
         # Forward pass
         outputs = model(inputs)
         # print(outputs)
 
         # Calculate loss
+        # loss = criterion(outputs, labels.unsqueeze(1))
+        # print(labels)
+        # print(outputs)
         loss = criterion(outputs, labels.unsqueeze(1))
+        # loss = criterion(outputs, labels)
+        # print(labels)
 
         # Backward pass and optimization
-        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
 
-        # Print training progress
-        # if (i + 1) % 100 == 0:
-        #     print(
-        #         f"Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {loss.item():.4f}"
-        #     )
     avg_loss = running_loss / len(train_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
+
+torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN.pt")
+
+# oracle = torch.load("/opt/app/data/Oracle_CNN.pt")
+# oracle.eval()
+model.eval()
+# jsma = JSMA(model, theta=1.0, gamma=0.1)
+
+# x, y = pickle.load(open(file_path + "/train_sparse.pkl", "rb"))
+# x = get_final_data(x)
+# x = x.sample(frac=0.01)
+# y = y.sample(frac=0.01)
+# X = torch.from_numpy(x.values).type(torch.float)
+# Y = torch.from_numpy(y.values).type(torch.float)
+
+# adv_samples = attack(X, Y)
+
+# procedure
+# first we train an oracle. it could be any deep learning model so this
+# step is just a classical training step
+# after training the oracle we can do the attack
+# first we give the oracle some inputs and get the lables for those
+# we use those to train the model
+# then we use the JBDSA to get new data points
+# then we give these new data points to the model
+# and then train the model
+# after we have this enough times, we use the substitute model
+# to craft adversarial examples
+
+oracle_predictions = model(X_test)
+print("oracle_predictions: ", oracle_predictions)
+predicted_labels = torch.argmax(oracle_predictions, dim=1).tolist()
+print(max(predicted_labels))

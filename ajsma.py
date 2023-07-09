@@ -210,3 +210,31 @@ class JSMA(Attack):
 
         adv_image = var_image
         return adv_image
+
+
+oracle = torch.load("/opt/app/data/Oracle_CNN.pt")
+# jsma = JSMA(model, theta=1.0, gamma=0.1)
+
+x, y = pickle.load(open(file_path + "/train_sparse.pkl", "rb"))
+x = get_final_data(x)
+x = x.sample(frac=0.01)
+y = y.sample(frac=0.01)
+X = torch.from_numpy(x.values).type(torch.float)
+Y = torch.from_numpy(y.values).type(torch.float)
+
+# adv_samples = attack(X, Y)
+
+# procedure
+# first we train an oracle. it could be any deep learning model so this
+# step is just a classical training step
+# after training the oracle we can do the attack
+# first we give the oracle some inputs and get the lables for those
+# we use those to train the model
+# then we use the JBDSA to get new data points
+# then we give these new data points to the model
+# and then train the model
+# after we have this enough times, we use the substitute model
+# to craft adversarial examples
+
+oracle_predictions = oracle(X)
+print(oracle_predictions)
