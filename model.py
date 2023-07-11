@@ -249,6 +249,12 @@ from sklearn.model_selection import train_test_split
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
 
 
+def tempsigmoid(x):
+    nd = 3.0
+    temp = nd / torch.log(torch.tensor(9.0))
+    return torch.sigmoid(x / (temp))
+
+
 class CNNModel(nn.Module):
     def __init__(self, input_size):
         super(CNNModel, self).__init__()
@@ -282,23 +288,23 @@ class DNNModel(nn.Module):
     def __init__(self, input_size):
         super(DNNModel, self).__init__()
         self.fc1 = nn.Linear(input_size, 256)
-        self.fc2 = nn.Linear(256, 512)
-        self.fc3 = nn.Linear(512, 128)
-        self.fc4 = nn.Linear(128, 32)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 32)
         self.fc5 = nn.Linear(32, 1)
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # x = self.relu(self.fc1(x))
-        # x = self.relu(self.fc2(x))
-        # x = self.relu(self.fc3(x))
-        # x = self.relu(self.fc4(x))
-        x = self.fc1(x)
-        x = self.fc2(x)
-        x = self.fc3(x)
-        x = self.fc4(x)
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.relu(self.fc4(x))
+        # x = self.fc1(x)
+        # x = self.fc2(x)
+        # x = self.fc3(x)
+        # x = self.fc4(x)
         x = self.fc5(x)
         x = self.sigmoid(x)
         # x = self.softmax(x)
@@ -328,18 +334,18 @@ model = DNNModel(197).to(device)
 # model = RNNModel(197, 128, 5)
 
 
-class UNSW_Dataset(Dataset):
-    def __init__(self, X, Y):
-        self.data = X
-        self.label = Y
+# class UNSW_Dataset(Dataset):
+#     def __init__(self, X, Y):
+#         self.data = X
+#         self.label = Y
 
-    def __len__(self):
-        return len(self.data)
+#     def __len__(self):
+#         return len(self.data)
 
-    def __getitem__(self, index):
-        x = self.data[index]
-        y = self.label[index]
-        return x, y
+#     def __getitem__(self, index):
+#         x = self.data[index]
+#         y = self.label[index]
+#         return x, y
 
 
 # train_dataset = UNSW_Dataset(X_train, Y_train)
@@ -351,6 +357,14 @@ print(Y_train.unsqueeze(1).shape)
 #     X_train.unsqueeze(1), Y_train.unsqueeze(1)
 # )
 # use for rnn
+print(X_train)
+print(Y_train)
+# turn half the results to 1
+# mask = torch.rand(Y_train.shape) < 0.5
+# Y_train[mask] = 1
+print(X_train.shape)
+# X_train = X_train[:, :5]
+print(X_train.shape)
 train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
 test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
@@ -363,8 +377,8 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 # criterion = nn.CrossEntropyLoss()
 criterion = nn.BCELoss()
 # criterion = nn.BCEWithLogitsLoss()
-# optimizer = optim.Adam(model.parameters(), lr=0.001)
-optimizer = optim.SGD(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+# optimizer = optim.SGD(model.parameters(), lr=0.001)
 # optimizer = optim.Adagrad(model.parameters(), lr=0.001)
 # optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 
@@ -429,6 +443,7 @@ model.eval()
 # after we have this enough times, we use the substitute model
 # to craft adversarial examples
 
+print(X_test)
 oracle_predictions = model(X_test)
 print("oracle_predictions: ", oracle_predictions)
 predicted_labels = torch.argmax(oracle_predictions, dim=1).tolist()
