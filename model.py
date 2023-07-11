@@ -246,7 +246,9 @@ device = torch.device("cpu")
 
 from sklearn.model_selection import train_test_split
 
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2)
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1)
+print(X_train.shape)
+print(Y_train.shape)
 
 
 def tempsigmoid(x):
@@ -287,27 +289,32 @@ class CNNModel(nn.Module):
 class DNNModel(nn.Module):
     def __init__(self, input_size):
         super(DNNModel, self).__init__()
-        self.fc1 = nn.Linear(input_size, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, 32)
-        self.fc5 = nn.Linear(32, 1)
+        self.fc1 = nn.Linear(input_size, 64)
+        self.rnn = nn.RNN(64, 64, 5, batch_first=True)
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 128)
+        self.fc4 = nn.Linear(128, 64)
+        self.fc5 = nn.Linear(64, 32)
+        self.fc6 = nn.Linear(32, 1)
         self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
         self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.relu(self.fc3(x))
-        x = self.relu(self.fc4(x))
-        # x = self.fc1(x)
-        # x = self.fc2(x)
-        # x = self.fc3(x)
-        # x = self.fc4(x)
+        x = self.fc1(x)
+        x = self.tanh(x)
+        x, _ = self.rnn(x)
+        x = self.fc2(x)
+        x = self.tanh(x)
+        x = self.fc3(x)
+        x = self.tanh(x)
+        x = self.fc4(x)
+        x = self.tanh(x)
         x = self.fc5(x)
-        x = self.sigmoid(x)
-        # x = self.softmax(x)
+        x = self.tanh(x)
+        x = self.fc6(x)
+        # x = self.sigmoid(x)
         return x
 
 
@@ -328,10 +335,34 @@ class RNNModel(nn.Module):
         return out
 
 
+class Die(nn.Module):
+    def __init__(self, input_size):
+        super(Die, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.rnn = nn.RNN(128, 128, 5, batch_first=True)
+        self.fc3 = nn.Linear(128, 256)
+        self.fc4 = nn.Linear(256, 64)
+        self.fc5 = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        # x, _ = self.rnn(x)
+        x = self.relu(self.fc3(x))
+        x = self.relu(self.fc4(x))
+        x = self.fc5(x)
+        x = self.sigmoid(x)
+        return x
+
+
 # model = NIDSCNN().to(device)
 # model = CNNModel(197).to(device)
-model = DNNModel(197).to(device)
+# model = DNNModel(5).to(device)
 # model = RNNModel(197, 128, 5)
+model = Die(197)
 
 
 # class UNSW_Dataset(Dataset):
@@ -350,8 +381,8 @@ model = DNNModel(197).to(device)
 
 # train_dataset = UNSW_Dataset(X_train, Y_train)
 # test_dataset = UNSW_Dataset(X_test, Y_test)
-print(X_train.unsqueeze(1).shape)
-print(Y_train.unsqueeze(1).shape)
+# print(X_train.unsqueeze(1).shape)
+# print(Y_train.unsqueeze(1).shape)
 # use for everything else
 # train_dataset = torch.utils.data.TensorDataset(
 #     X_train.unsqueeze(1), Y_train.unsqueeze(1)
@@ -365,13 +396,72 @@ print(Y_train)
 print(X_train.shape)
 # X_train = X_train[:, :5]
 print(X_train.shape)
+
+# X_train = torch.randn(15000, 197)
+# # X_train = torch.randn(15000, 1, 197)
+# Y_train = torch.randint(0, 2, (15000, 1)).float()
+
 train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
 test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
+# from torchsampler import ImbalancedDatasetSampler
+
+# num_samples = len(train_dataset)
+# num_classes = 2
+# class_counts = torch.zeros(num_classes)
+# for i in range(num_samples):
+#     _, label = train_dataset[i]
+#     if i % 100 == 0:
+#         print(train_dataset[i])
+#         print(label)
+#     class_counts[label.long()] += 1
+
+# class_weights = 1.0 / class_counts
+# print(class_counts)
+# print(class_weights)
+
+# sampler = ImbalancedDatasetSampler(train_dataset, class_weights)
+
+
+class BalancedDataset(Dataset):
+    def __init__(self, inputs, labels):
+        self.inputs = inputs
+        self.labels = labels
+
+        # Separate the inputs and labels based on class
+        class_0_indices = torch.where(labels == 0)[0]
+        class_1_indices = torch.where(labels == 1)[0]
+
+        # Determine the size of the smaller class
+        min_class_size = min(len(class_0_indices), len(class_1_indices))
+
+        # Sample equal number of samples from each class
+        balanced_indices = torch.cat(
+            [
+                torch.randperm(len(class_0_indices))[:min_class_size],
+                torch.randperm(len(class_1_indices))[:min_class_size],
+            ]
+        )
+
+        # Update the inputs and labels with balanced data
+        self.inputs = self.inputs[balanced_indices]
+        self.labels = self.labels[balanced_indices]
+
+    def __len__(self):
+        return len(self.inputs)
+
+    def __getitem__(self, index):
+        input_data = self.inputs[index]
+        label = self.labels[index]
+        return input_data, label
+
+
+train_dataset = BalancedDataset(X_train, Y_train)
+
 # batch_size = 64
-batch_size = 16
-num_epochs = 10
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+batch_size = 64
+num_epochs = 400
+data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 # criterion = nn.CrossEntropyLoss()
@@ -382,13 +472,13 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 # optimizer = optim.Adagrad(model.parameters(), lr=0.001)
 # optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 
+model.train()
 for epoch in range(num_epochs):
     running_loss = 0.0
-    for i, data in enumerate(train_loader):
-        inputs, labels = data
+    for inputs, labels in data_loader:
         # inputs = inputs.unsqueeze(dim=1).to(device)
-        inputs = inputs.to(device)
-        labels = labels.to(device)
+        # inputs = inputs.to(device)
+        # labels = labels.to(device)
         # print(inputs.shape)
 
         # Zero the gradients
@@ -412,7 +502,7 @@ for epoch in range(num_epochs):
 
         running_loss += loss.item()
 
-    avg_loss = running_loss / len(train_loader)
+    avg_loss = running_loss / len(data_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
 torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN.pt")
@@ -444,7 +534,11 @@ model.eval()
 # to craft adversarial examples
 
 print(X_test)
+# oracle_predictions = model(X_test[:, :5])
 oracle_predictions = model(X_test)
+print(oracle_predictions.shape)
 print("oracle_predictions: ", oracle_predictions)
-predicted_labels = torch.argmax(oracle_predictions, dim=1).tolist()
-print(max(predicted_labels))
+print("max:", torch.max(oracle_predictions))
+print("min:", torch.min(oracle_predictions))
+# predicted_labels = torch.argmax(oracle_predictions, dim=1).tolist()
+# print(max(predicted_labels))
