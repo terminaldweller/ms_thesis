@@ -1,4 +1,5 @@
 #!/usr/bin/env -S docker exec -it 83047ce42523 python3 /opt/app/data/model.py
+import torch
 import numpy as np  # for array
 import pandas as pd  # for csv files and dataframe
 import matplotlib.pyplot as plt  # for plotting
@@ -12,13 +13,15 @@ import pickle  # To load data int disk
 
 import warnings
 
-warnings.filterwarnings("ignore")
+# warnings.filterwarnings("ignore")
 
 # from sklearn.preprocessing import StandardScaler  # Standardizer
 # from sklearn.preprocessing import LabelEncoder, OneHotEncoder  # One hot Encoder
 from scipy.sparse import csr_matrix  # For sparse matrix
 
 from sklearn.model_selection import train_test_split
+
+torch.autograd.set_detect_anomaly(True)
 
 # Different Models
 # from sklearn.linear_model import LogisticRegression, SGDClassifier  # LR
@@ -197,10 +200,8 @@ def get_final_data(data, saved_dict=saved_dict, mode_dict=mode_dict):
 x_test = get_final_data(x_test)
 # x_train.shape, x_test.shape
 
-import torch
-
-x_test = x_test.sample(frac=0.1)
-y_test = y_test.sample(frac=0.1)
+x_test = x_test.sample(frac=0.15)
+y_test = y_test.sample(frac=0.15)
 # x_test = x_train.sample(frac=0.1)
 # y_test = y_train.sample(frac=0.1)
 X = torch.from_numpy(x_test.values).type(torch.float)
@@ -247,8 +248,8 @@ device = torch.device("cpu")
 from sklearn.model_selection import train_test_split
 
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1)
-print(X_train.shape)
-print(Y_train.shape)
+print(f"X_train_shape: {X_train.shape} -- Y_train_shape: {Y_train.shape}")
+print(f"X_test_shape: {X_test.shape} -- Y_test_shape: {Y_test.shape}")
 
 
 def tempsigmoid(x):
@@ -340,7 +341,7 @@ class Die(nn.Module):
         super(Die, self).__init__()
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 128)
-        self.rnn = nn.RNN(128, 128, 5, batch_first=True)
+        # self.rnn = nn.RNN(128, 128, 5, batch_first=True)
         self.fc3 = nn.Linear(128, 256)
         self.fc4 = nn.Linear(256, 64)
         self.fc5 = nn.Linear(64, 1)
@@ -358,11 +359,33 @@ class Die(nn.Module):
         return x
 
 
+class Dummy(nn.Module):
+    def __init__(self, input_size):
+        super(Dummy, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 256)
+        self.fc4 = nn.Linear(256, 64)
+        self.fc5 = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.relu(self.fc4(x))
+        x = self.fc5(x)
+        x = self.sigmoid(x)
+        return x
+
+
 # model = NIDSCNN().to(device)
 # model = CNNModel(197).to(device)
 # model = DNNModel(5).to(device)
 # model = RNNModel(197, 128, 5)
-model = Die(197)
+# model = Die(197)
+model = Dummy(197)
 
 
 # class UNSW_Dataset(Dataset):
@@ -388,21 +411,20 @@ model = Die(197)
 #     X_train.unsqueeze(1), Y_train.unsqueeze(1)
 # )
 # use for rnn
-print(X_train)
-print(Y_train)
+# print(X_train)
+# print(Y_train)
 # turn half the results to 1
 # mask = torch.rand(Y_train.shape) < 0.5
 # Y_train[mask] = 1
-print(X_train.shape)
+# print(X_train.shape)
 # X_train = X_train[:, :5]
-print(X_train.shape)
+# print(X_train.shape)
 
 # X_train = torch.randn(15000, 197)
-# # X_train = torch.randn(15000, 1, 197)
 # Y_train = torch.randint(0, 2, (15000, 1)).float()
+# X_test = torch.randn(15000, 197)
+# Y_test = torch.randint(0, 2, (15000, 1)).float()
 
-train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
-test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # from torchsampler import ImbalancedDatasetSampler
 
@@ -457,44 +479,40 @@ class BalancedDataset(Dataset):
 
 
 train_dataset = BalancedDataset(X_train, Y_train)
+# train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
+# test_dataset = BalancedDataset(X_test, Y_test)
+test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # batch_size = 64
 batch_size = 64
 num_epochs = 400
-data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 # criterion = nn.CrossEntropyLoss()
 criterion = nn.BCELoss()
 # criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+# optimizer = optim.Adam(model.parameters(), lr=0.001)
 # optimizer = optim.SGD(model.parameters(), lr=0.001)
 # optimizer = optim.Adagrad(model.parameters(), lr=0.001)
-# optimizer = optim.RMSprop(model.parameters(), lr=0.001)
+optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 
 model.train()
 for epoch in range(num_epochs):
     running_loss = 0.0
     for inputs, labels in data_loader:
-        # inputs = inputs.unsqueeze(dim=1).to(device)
-        # inputs = inputs.to(device)
-        # labels = labels.to(device)
-        # print(inputs.shape)
-
-        # Zero the gradients
         optimizer.zero_grad()
 
         # Forward pass
         outputs = model(inputs)
+        if torch.isinf(outputs).any() or torch.isnan(outputs).any():
+            print("Model returned inf or nan values during evaluation.")
+        # print(f"inputs_shape: {inputs.shape} -- outputs_shape: {outputs.shape}")
         # print(outputs)
 
         # Calculate loss
-        # loss = criterion(outputs, labels.unsqueeze(1))
-        # print(labels)
-        # print(outputs)
         loss = criterion(outputs, labels.unsqueeze(1))
         # loss = criterion(outputs, labels)
-        # print(labels)
 
         # Backward pass and optimization
         loss.backward()
@@ -505,43 +523,26 @@ for epoch in range(num_epochs):
     avg_loss = running_loss / len(data_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
-torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN.pt")
+torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN_RMS.pt")
 
-# oracle = torch.load("/opt/app/data/Oracle_CNN.pt")
-# oracle.eval()
-model.eval()
-# jsma = JSMA(model, theta=1.0, gamma=0.1)
+# model.eval()
+total_corrects = 0
+total_samples = 0
+# with torch.no_grad():
+for inputs, labels in test_loader:
+    outputs = model(inputs)
+    if torch.isinf(outputs).any() or torch.isnan(outputs).any():
+        print("Model returned inf or nan values during evaluation.")
+    predicted_labels = torch.round(outputs)
+    # print(f"input_shape: {inputs.shape} -- output_shape: {outputs.shape}")
+    # print(f"predicted_shape: {predicted_labels.shape} -- lables_shape: {labels.shape}")
+    correct = torch.sum((predicted_labels == labels)[:, 0])
+    sample_count = labels.size(0)
+    total_corrects += correct
+    total_samples += sample_count
+    # print(f"correct: {correct} -- samples: {sample_count}")
 
-# x, y = pickle.load(open(file_path + "/train_sparse.pkl", "rb"))
-# x = get_final_data(x)
-# x = x.sample(frac=0.01)
-# y = y.sample(frac=0.01)
-# X = torch.from_numpy(x.values).type(torch.float)
-# Y = torch.from_numpy(y.values).type(torch.float)
-
-# adv_samples = attack(X, Y)
-
-# procedure
-# first we train an oracle. it could be any deep learning model so this
-# step is just a classical training step
-# after training the oracle we can do the attack
-# first we give the oracle some inputs and get the lables for those
-# we use those to train the model
-# then we use the JBDSA to get new data points
-# then we give these new data points to the model
-# and then train the model
-# after we have this enough times, we use the substitute model
-# to craft adversarial examples
-
-print(X_test)
-# oracle_predictions = model(X_test[:, :5])
-oracle_predictions = model(X_test)
-print(oracle_predictions.shape)
-print("oracle_predictions: ", oracle_predictions.tolist())
-print("max:", torch.max(oracle_predictions))
-print("min:", torch.min(oracle_predictions))
-predicted_labels = (oracle_predictions >= 0.5).float()
-print(predicted_labels)
-# predicted_labels = torch.argmax(oracle_predictions, dim=1).tolist()
-# print(max(predicted_labels))
-# print(predicted_labels)
+print(f"total_corrects: {total_corrects}")
+print(f"total_samples: {total_samples}")
+accuracy = total_corrects / total_samples
+print(f"Evaluation Accuracy: {accuracy:.4f}")
