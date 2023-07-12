@@ -200,8 +200,8 @@ def get_final_data(data, saved_dict=saved_dict, mode_dict=mode_dict):
 x_test = get_final_data(x_test)
 # x_train.shape, x_test.shape
 
-x_test = x_test.sample(frac=0.15)
-y_test = y_test.sample(frac=0.15)
+x_test = x_test.sample(frac=0.1)
+y_test = y_test.sample(frac=0.1)
 # x_test = x_train.sample(frac=0.1)
 # y_test = y_train.sample(frac=0.1)
 X = torch.from_numpy(x_test.values).type(torch.float)
@@ -250,12 +250,6 @@ from sklearn.model_selection import train_test_split
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.1)
 print(f"X_train_shape: {X_train.shape} -- Y_train_shape: {Y_train.shape}")
 print(f"X_test_shape: {X_test.shape} -- Y_test_shape: {Y_test.shape}")
-
-
-def tempsigmoid(x):
-    nd = 3.0
-    temp = nd / torch.log(torch.tensor(9.0))
-    return torch.sigmoid(x / (temp))
 
 
 class CNNModel(nn.Module):
@@ -347,6 +341,11 @@ class Die(nn.Module):
         self.fc5 = nn.Linear(64, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
+        # torch.nn.init.uniform_(self.fc1.weight)
+        # torch.nn.init.uniform_(self.fc2.weight)
+        # torch.nn.init.uniform_(self.fc3.weight)
+        # torch.nn.init.uniform_(self.fc4.weight)
+        # torch.nn.init.uniform_(self.fc5.weight)
 
     def forward(self, x):
         x = self.relu(self.fc1(x))
@@ -359,33 +358,12 @@ class Die(nn.Module):
         return x
 
 
-class Dummy(nn.Module):
-    def __init__(self, input_size):
-        super(Dummy, self).__init__()
-        self.fc1 = nn.Linear(input_size, 64)
-        self.fc2 = nn.Linear(64, 128)
-        self.fc3 = nn.Linear(128, 256)
-        self.fc4 = nn.Linear(256, 64)
-        self.fc5 = nn.Linear(64, 1)
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        x = self.relu(self.fc3(x))
-        x = self.relu(self.fc4(x))
-        x = self.fc5(x)
-        x = self.sigmoid(x)
-        return x
-
-
 # model = NIDSCNN().to(device)
 # model = CNNModel(197).to(device)
 # model = DNNModel(5).to(device)
 # model = RNNModel(197, 128, 5)
-# model = Die(197)
-model = Dummy(197)
+model = Die(197)
+# model = Dummy(197)
 
 
 # class UNSW_Dataset(Dataset):
@@ -420,9 +398,9 @@ model = Dummy(197)
 # X_train = X_train[:, :5]
 # print(X_train.shape)
 
-# X_train = torch.randn(15000, 197)
+# X_train = torch.randn(15000, 1, 197)
 # Y_train = torch.randint(0, 2, (15000, 1)).float()
-# X_test = torch.randn(15000, 197)
+# X_test = torch.randn(15000, 1, 197)
 # Y_test = torch.randint(0, 2, (15000, 1)).float()
 
 
@@ -492,10 +470,29 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 # criterion = nn.CrossEntropyLoss()
 criterion = nn.BCELoss()
 # criterion = nn.BCEWithLogitsLoss()
-# optimizer = optim.Adam(model.parameters(), lr=0.001)
-optimizer = optim.SGD(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+# optimizer = optim.SGD(model.parameters(), lr=0.001)
 # optimizer = optim.Adagrad(model.parameters(), lr=0.001)
 # optimizer = optim.RMSprop(model.parameters(), lr=0.001)
+
+# model.train()
+# num_epochs = 10
+# for epoch in range(num_epochs):
+#     running_loss = 0.0
+#     for inputs, labels in data_loader:
+#         optimizer.zero_grad()
+
+#         outputs = model(inputs)
+#         loss = criterion(outputs, labels.unsqueeze(1))
+
+#         loss.backward()
+#         optimizer.step()
+
+#         running_loss += loss.item()
+
+#     # Print the average loss for the epoch
+#     avg_loss = running_loss / len(data_loader)
+#     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
 model.train()
 for epoch in range(num_epochs):
@@ -503,18 +500,13 @@ for epoch in range(num_epochs):
     for inputs, labels in data_loader:
         optimizer.zero_grad()
 
-        # Forward pass
         outputs = model(inputs)
         if torch.isinf(outputs).any() or torch.isnan(outputs).any():
             print("Model returned inf or nan values during evaluation.")
-        # print(f"inputs_shape: {inputs.shape} -- outputs_shape: {outputs.shape}")
-        # print(outputs)
 
-        # Calculate loss
         loss = criterion(outputs, labels.unsqueeze(1))
         # loss = criterion(outputs, labels)
 
-        # Backward pass and optimization
         loss.backward()
         optimizer.step()
 
@@ -525,22 +517,22 @@ for epoch in range(num_epochs):
 
 torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN_SGD.pt")
 
-# model.eval()
+model.eval()
 total_corrects = 0
 total_samples = 0
-# with torch.no_grad():
-for inputs, labels in test_loader:
-    outputs = model(inputs)
-    if torch.isinf(outputs).any() or torch.isnan(outputs).any():
-        print("Model returned inf or nan values during evaluation.")
-    predicted_labels = torch.round(outputs)
-    # print(f"input_shape: {inputs.shape} -- output_shape: {outputs.shape}")
-    # print(f"predicted_shape: {predicted_labels.shape} -- lables_shape: {labels.shape}")
-    correct = torch.sum((predicted_labels == labels)[:, 0])
-    sample_count = labels.size(0)
-    total_corrects += correct
-    total_samples += sample_count
-    # print(f"correct: {correct} -- samples: {sample_count}")
+with torch.no_grad():
+    for inputs, labels in test_loader:
+        outputs = model(inputs)
+        if torch.isinf(outputs).any() or torch.isnan(outputs).any():
+            print("Model returned inf or nan values during evaluation.")
+        predicted_labels = torch.round(outputs)
+        # print(f"input_shape: {inputs.shape} -- output_shape: {outputs.shape}")
+        # print(f"predicted_shape: {predicted_labels.shape} -- lables_shape: {labels.shape}")
+        correct = torch.sum((predicted_labels == labels)[:, 0])
+        sample_count = labels.size(0)
+        total_corrects += correct
+        total_samples += sample_count
+        # print(f"correct: {correct} -- samples: {sample_count}")
 
 print(f"total_corrects: {total_corrects}")
 print(f"total_samples: {total_samples}")
