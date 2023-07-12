@@ -480,8 +480,8 @@ class BalancedDataset(Dataset):
 
 train_dataset = BalancedDataset(X_train, Y_train)
 # train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
-# test_dataset = BalancedDataset(X_test, Y_test)
-test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
+test_dataset = BalancedDataset(X_test, Y_test)
+# test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # batch_size = 64
 batch_size = 64
@@ -493,9 +493,9 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 criterion = nn.BCELoss()
 # criterion = nn.BCEWithLogitsLoss()
 # optimizer = optim.Adam(model.parameters(), lr=0.001)
-# optimizer = optim.SGD(model.parameters(), lr=0.001)
+optimizer = optim.SGD(model.parameters(), lr=0.001)
 # optimizer = optim.Adagrad(model.parameters(), lr=0.001)
-optimizer = optim.RMSprop(model.parameters(), lr=0.001)
+# optimizer = optim.RMSprop(model.parameters(), lr=0.001)
 
 model.train()
 for epoch in range(num_epochs):
@@ -523,7 +523,7 @@ for epoch in range(num_epochs):
     avg_loss = running_loss / len(data_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
-torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN_RMS.pt")
+torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN_SGD.pt")
 
 # model.eval()
 total_corrects = 0
