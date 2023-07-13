@@ -6,6 +6,8 @@ import pickle
 import torch.nn as nn
 import typing
 import matplotlib.pyplot as plt  # for plotting
+from torch.utils.data import DataLoader, Dataset
+import torch.optim as optim
 
 from torchattacks.attack import Attack
 
@@ -246,7 +248,7 @@ class Substitute_Model(nn.Module):
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 128)
         self.fc3 = nn.Linear(128, 64)
-        self.fc6 = nn.Linear(64, 1)
+        self.fc4 = nn.Linear(64, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
@@ -266,6 +268,40 @@ oracle.load_state_dict(torch.load("/opt/app/data/Oracle_Adam.pt"))
 oracle.eval()
 file_path = "/opt/app/data/"
 
+
+class BalancedDataset(Dataset):
+    def __init__(self, inputs, labels):
+        self.inputs = inputs
+        self.labels = labels
+
+        # Separate the inputs and labels based on class
+        class_0_indices = torch.where(labels == 0)[0]
+        class_1_indices = torch.where(labels == 1)[0]
+
+        # Determine the size of the smaller class
+        min_class_size = min(len(class_0_indices), len(class_1_indices))
+
+        # Sample equal number of samples from each class
+        balanced_indices = torch.cat(
+            [
+                torch.randperm(len(class_0_indices))[:min_class_size],
+                torch.randperm(len(class_1_indices))[:min_class_size],
+            ]
+        )
+
+        # Update the inputs and labels with balanced data
+        self.inputs = self.inputs[balanced_indices]
+        self.labels = self.labels[balanced_indices]
+
+    def __len__(self):
+        return len(self.inputs)
+
+    def __getitem__(self, index):
+        input_data = self.inputs[index]
+        label = self.labels[index]
+        return input_data, label
+
+
 # procedure
 # first we train an oracle. it could be any deep learning model so this
 # step is just a classical training step
@@ -279,7 +315,17 @@ file_path = "/opt/app/data/"
 # to craft adversarial examples
 
 
-def train_loop(X, model, data_loader, num_epochs, optimizer, criterion):
+def get_jacobian(model):
+    pass
+
+
+def augment(X, model):
+    jac = get_jacobian(model)
+
+
+def train_loop(X, Y, model, num_epochs, optimizer, criterion):
+    train_dataset = BalancedDataset(X, Y)
+    data_loader = DataLoader(train_dataset, batch_size=32, shuffle=False)
     train_losses: typing.List[float] = []
     valid_losses: typing.List[float] = []
     fig, ax = plt.subplots()
@@ -336,9 +382,22 @@ def train_loop(X, model, data_loader, num_epochs, optimizer, criterion):
 sub_model = Substitute_Model(197)
 
 x, y = pickle.load(open(file_path + "/oracle_data.pkl", "rb"))
+x = x.sample(frac=0.003)
+y = y.sample(frac=0.003)
+print(x.shape, y.shape)
 X = torch.from_numpy(x.values).type(torch.float)
 Y = torch.from_numpy(y.values).type(torch.float)
-oracle_predictions = oracle(X)
-print(oracle_predictions.shape)
-if torch.isinf(oracle_predictions).any() or torch.isnan(oracle_predictions).any():
-    print("Model returned inf or nan values during evaluation.")
+
+rho = 10
+
+for _ in range(0, rho):
+    oracle_predictions = oracle(X)
+    print(oracle_predictions.shape)
+    if torch.isinf(oracle_predictions).any() or torch.isnan(oracle_predictions).any():
+        print("Model returned inf or nan values during evaluation.")
+
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
+    train_loop(X, Y, sub_model, 10, optimizer, criterion)
+
+    X_new = augment(X)
