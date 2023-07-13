@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt  # for plotting
 import seaborn as sns  # plotting
 from scipy import stats
 from tqdm import tqdm  # Progress bar
+import typing
 
 import pickle  # To load data int disk
 
@@ -202,6 +203,7 @@ x_test = get_final_data(x_test)
 
 x_test = x_test.sample(frac=0.1)
 y_test = y_test.sample(frac=0.1)
+pickle.dump((x_test, y_test), open(file_path + "/oracle_data.pkl", "wb"))
 # x_test = x_train.sample(frac=0.1)
 # y_test = y_train.sample(frac=0.1)
 X = torch.from_numpy(x_test.values).type(torch.float)
@@ -335,9 +337,9 @@ class Die(nn.Module):
         super(Die, self).__init__()
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 128)
-        # self.rnn = nn.RNN(128, 128, 5, batch_first=True)
         self.fc3 = nn.Linear(128, 256)
         self.fc4 = nn.Linear(256, 64)
+        # self.rnn = nn.RNN(64, 16, 3, batch_first=True)
         self.fc5 = nn.Linear(64, 1)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
@@ -350,10 +352,33 @@ class Die(nn.Module):
     def forward(self, x):
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
-        # x, _ = self.rnn(x)
         x = self.relu(self.fc3(x))
         x = self.relu(self.fc4(x))
+        # x, _ = self.rnn(x)
         x = self.fc5(x)
+        x = self.sigmoid(x)
+        return x
+
+
+class New(nn.Module):
+    def __init__(self, input_size):
+        super(New, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 512)
+        self.fc4 = nn.Linear(512, 128)
+        self.fc5 = nn.Linear(128, 64)
+        self.fc6 = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.relu(self.fc4(x))
+        x = self.relu(self.fc5(x))
+        x = self.fc6(x)
         x = self.sigmoid(x)
         return x
 
@@ -362,7 +387,7 @@ class Die(nn.Module):
 # model = CNNModel(197).to(device)
 # model = DNNModel(5).to(device)
 # model = RNNModel(197, 128, 5)
-model = Die(197)
+model = New(197)
 # model = Dummy(197)
 
 
@@ -458,12 +483,12 @@ class BalancedDataset(Dataset):
 
 train_dataset = BalancedDataset(X_train, Y_train)
 # train_dataset = torch.utils.data.TensorDataset(X_train, Y_train)
-test_dataset = BalancedDataset(X_test, Y_test)
-# test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
+# test_dataset = BalancedDataset(X_test, Y_test)
+test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # batch_size = 64
 batch_size = 64
-num_epochs = 400
+num_epochs = 20
 data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
@@ -494,9 +519,14 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     avg_loss = running_loss / len(data_loader)
 #     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
-model.train()
+train_losses: typing.List[float] = []
+valid_losses: typing.List[float] = []
+fig, ax = plt.subplots()
 for epoch in range(num_epochs):
+    train_loss = 0.0
+    valid_loss = 0.0
     running_loss = 0.0
+    model.train()
     for inputs, labels in data_loader:
         optimizer.zero_grad()
 
@@ -510,12 +540,39 @@ for epoch in range(num_epochs):
         loss.backward()
         optimizer.step()
 
+        train_loss += loss.item() * inputs.size(0)
         running_loss += loss.item()
 
     avg_loss = running_loss / len(data_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
+    train_loss /= len(train_dataset)
+    train_losses.append(train_loss)
 
-torch.save(model.state_dict(), "/opt/app/data/Oracle_CNN_SGD.pt")
+    model.eval()
+    with torch.no_grad():
+        for inputs, lables in test_loader:
+            outputs = model(inputs)
+
+            loss = criterion(outputs, lables.unsqueeze(1))
+
+            valid_loss += loss.item() * inputs.size(0)
+
+        valid_loss /= len(test_dataset)
+        valid_losses.append(valid_loss)
+
+    ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
+    ax.plot(range(1, epoch + 2), valid_losses, label="Validation Loss")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("Training Progress")
+    ax.legend()
+    plt.pause(0.1)
+
+plt.savefig("/opt/app/data/model_train_progress.png")
+plt.show()
+
+
+torch.save(model.state_dict(), "/opt/app/data/Oracle_Adam.pt")
 
 model.eval()
 total_corrects = 0
@@ -538,3 +595,35 @@ print(f"total_corrects: {total_corrects}")
 print(f"total_samples: {total_samples}")
 accuracy = total_corrects / total_samples
 print(f"Evaluation Accuracy: {accuracy:.4f}")
+
+oracle = New(197)
+oracle.load_state_dict(torch.load("/opt/app/data/Oracle_Adam.pt"))
+oracle.eval()
+# jsma = JSMA(model, theta=1.0, gamma=0.1)
+file_path = "/opt/app/data/"
+
+# x, y = pickle.load(open(file_path + "/train_sparse.pkl", "rb"))
+# print(x.shape, y.shape)
+# x = x.sample(frac=0.001)
+# y = y.sample(frac=0.001)
+# X = torch.from_numpy(x.values).type(torch.float)
+# Y = torch.from_numpy(y.values).type(torch.float)
+
+# adv_samples = attack(X, Y)
+
+# procedure
+# first we train an oracle. it could be any deep learning model so this
+# step is just a classical training step
+# after training the oracle we can do the attack
+# first we give the oracle some inputs and get the lables for those
+# we use those to train the model
+# then we use the JBDSA to get new data points
+# then we give these new data points to the model
+# and then train the model
+# after we have this enough times, we use the substitute model
+# to craft adversarial examples
+
+oracle_predictions = oracle(X_train)
+print(oracle_predictions.shape)
+if torch.isinf(oracle_predictions).any() or torch.isnan(oracle_predictions).any():
+    print("Model returned inf or nan values during evaluation.")

@@ -1,6 +1,11 @@
+#!/usr/bin/env -S docker exec -it 83047ce42523 python3 /opt/app/data/ajsma.py
 # https://adversarial-attacks-pytorch.readthedocs.io/en/latest/_modules/torchattacks/attacks/jsma.html
 import torch
 import numpy as np
+import pickle
+import torch.nn as nn
+import typing
+import matplotlib.pyplot as plt  # for plotting
 
 from torchattacks.attack import Attack
 
@@ -212,17 +217,54 @@ class JSMA(Attack):
         return adv_image
 
 
-oracle = torch.load("/opt/app/data/Oracle_CNN.pt")
-# jsma = JSMA(model, theta=1.0, gamma=0.1)
+class New(nn.Module):
+    def __init__(self, input_size):
+        super(New, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 512)
+        self.fc4 = nn.Linear(512, 128)
+        self.fc5 = nn.Linear(128, 64)
+        self.fc6 = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
 
-x, y = pickle.load(open(file_path + "/train_sparse.pkl", "rb"))
-x = get_final_data(x)
-x = x.sample(frac=0.01)
-y = y.sample(frac=0.01)
-X = torch.from_numpy(x.values).type(torch.float)
-Y = torch.from_numpy(y.values).type(torch.float)
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.relu(self.fc4(x))
+        x = self.relu(self.fc5(x))
+        x = self.fc6(x)
+        x = self.sigmoid(x)
+        return x
 
-# adv_samples = attack(X, Y)
+
+class Substitute_Model(nn.Module):
+    def __init__(self, input_size):
+        super(Substitute_Model, self).__init__()
+        self.fc1 = nn.Linear(input_size, 64)
+        self.fc2 = nn.Linear(64, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc6 = nn.Linear(64, 1)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        x = self.fc4(x)
+        x = self.sigmoid(x)
+        return x
+
+
+file_path = "/opt/app/data"
+
+oracle = New(197)
+oracle.load_state_dict(torch.load("/opt/app/data/Oracle_Adam.pt"))
+oracle.eval()
+file_path = "/opt/app/data/"
 
 # procedure
 # first we train an oracle. it could be any deep learning model so this
@@ -236,5 +278,67 @@ Y = torch.from_numpy(y.values).type(torch.float)
 # after we have this enough times, we use the substitute model
 # to craft adversarial examples
 
+
+def train_loop(X, model, data_loader, num_epochs, optimizer, criterion):
+    train_losses: typing.List[float] = []
+    valid_losses: typing.List[float] = []
+    fig, ax = plt.subplots()
+    for epoch in range(num_epochs):
+        train_loss = 0.0
+        valid_loss = 0.0
+        running_loss = 0.0
+        model.train()
+        for inputs, labels in data_loader:
+            optimizer.zero_grad()
+
+            outputs = model(inputs)
+            if torch.isinf(outputs).any() or torch.isnan(outputs).any():
+                print("Model returned inf or nan values during evaluation.")
+
+            loss = criterion(outputs, labels.unsqueeze(1))
+            # loss = criterion(outputs, labels)
+
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item() * inputs.size(0)
+            running_loss += loss.item()
+
+        avg_loss = running_loss / len(data_loader)
+        print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
+        train_loss /= len(train_dataset)
+        train_losses.append(train_loss)
+
+        # model.eval()
+        # with torch.no_grad():
+        #     for inputs, lables in test_loader:
+        #         outputs = model(inputs)
+
+        #         loss = criterion(outputs, lables.unsqueeze(1))
+
+        #         valid_loss += loss.item() * inputs.size(0)
+
+        #     valid_loss /= len(test_dataset)
+        #     valid_losses.append(valid_loss)
+
+        ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
+        # ax.plot(range(1, epoch + 2), valid_losses, label="Validation Loss")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.set_title("Training Progress")
+        ax.legend()
+        plt.pause(0.1)
+
+    plt.savefig("/opt/app/data/model_train_progress.png")
+    plt.show()
+
+
+sub_model = Substitute_Model(197)
+
+x, y = pickle.load(open(file_path + "/oracle_data.pkl", "rb"))
+X = torch.from_numpy(x.values).type(torch.float)
+Y = torch.from_numpy(y.values).type(torch.float)
 oracle_predictions = oracle(X)
-print(oracle_predictions)
+print(oracle_predictions.shape)
+if torch.isinf(oracle_predictions).any() or torch.isnan(oracle_predictions).any():
+    print("Model returned inf or nan values during evaluation.")
