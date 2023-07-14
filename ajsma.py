@@ -219,9 +219,9 @@ class JSMA(Attack):
         return adv_image
 
 
-class New(nn.Module):
+class Oracle(nn.Module):
     def __init__(self, input_size):
-        super(New, self).__init__()
+        super(Oracle, self).__init__()
         self.fc1 = nn.Linear(input_size, 64)
         self.fc2 = nn.Linear(64, 128)
         self.fc3 = nn.Linear(128, 512)
@@ -263,7 +263,7 @@ class Substitute_Model(nn.Module):
 
 file_path = "/opt/app/data"
 
-oracle = New(197)
+oracle = Oracle(197)
 oracle.load_state_dict(torch.load("/opt/app/data/Oracle_Adam.pt"))
 oracle.eval()
 file_path = "/opt/app/data/"
@@ -315,15 +315,18 @@ class BalancedDataset(Dataset):
 # to craft adversarial examples
 
 
-def get_jacobian(model):
-    pass
+def augment(inputs, gradients, magnitude=0.05):
+    # FIXME-we probably should change this for AJSMA
+    abs_gradients = torch.abs(gradients)
+    scaled_gradients = magnitude * abs_gradients
+    augmented_inputs = input_data + scaled_gradients
+    return augmented_inputs
 
 
-def augment(X, model):
-    jac = get_jacobian(model)
-
-
-def train_loop(X, Y, model, num_epochs, optimizer, criterion):
+def train_loop(X, Y, num_epochs):
+    sub_model = Substitute_Model(197)
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
     train_dataset = BalancedDataset(X, Y)
     data_loader = DataLoader(train_dataset, batch_size=32, shuffle=False)
     train_losses: typing.List[float] = []
@@ -333,11 +336,11 @@ def train_loop(X, Y, model, num_epochs, optimizer, criterion):
         train_loss = 0.0
         valid_loss = 0.0
         running_loss = 0.0
-        model.train()
+        sub_model.train()
         for inputs, labels in data_loader:
             optimizer.zero_grad()
 
-            outputs = model(inputs)
+            outputs = sub_model(inputs)
             if torch.isinf(outputs).any() or torch.isnan(outputs).any():
                 print("Model returned inf or nan values during evaluation.")
 
@@ -355,10 +358,10 @@ def train_loop(X, Y, model, num_epochs, optimizer, criterion):
         train_loss /= len(train_dataset)
         train_losses.append(train_loss)
 
-        # model.eval()
+        # sub_model.eval()
         # with torch.no_grad():
         #     for inputs, lables in test_loader:
-        #         outputs = model(inputs)
+        #         outputs = sub_model(inputs)
 
         #         loss = criterion(outputs, lables.unsqueeze(1))
 
@@ -377,27 +380,50 @@ def train_loop(X, Y, model, num_epochs, optimizer, criterion):
 
     plt.savefig("/opt/app/data/model_train_progress.png")
     plt.show()
+    return model
 
-
-sub_model = Substitute_Model(197)
 
 x, y = pickle.load(open(file_path + "/oracle_data.pkl", "rb"))
 x = x.sample(frac=0.003)
 y = y.sample(frac=0.003)
 print(x.shape, y.shape)
-X = torch.from_numpy(x.values).type(torch.float)
-Y = torch.from_numpy(y.values).type(torch.float)
+# X = torch.from_numpy(x.values).type(torch.float)
+# Y = torch.from_numpy(y.values).type(torch.float)
+X = torch.tensor(x.values, requires_grad=True).type(torch.float)
+Y = torch.tensor(y.values).type(torch.float)
 
 rho = 10
+magnitude = 0.05
 
-for _ in range(0, rho):
-    oracle_predictions = oracle(X)
-    print(oracle_predictions.shape)
-    if torch.isinf(oracle_predictions).any() or torch.isnan(oracle_predictions).any():
-        print("Model returned inf or nan values during evaluation.")
 
-    criterion = nn.BCELoss()
-    optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
-    train_loop(X, Y, sub_model, 10, optimizer, criterion)
+def jacobian_based_augmentation(X):
+    model = Substitute_Model(197)
+    for _ in range(0, rho):
+        oracle_predictions = oracle(X)
+        if (
+            torch.isinf(oracle_predictions).any()
+            or torch.isnan(oracle_predictions).any()
+        ):
+            print("Model returned inf or nan values during evaluation.")
 
-    X_new = augment(X)
+        model = train_loop(X, Y, 10)
+        gradients = X.grad
+
+        X_new = augment(X, gradients, magnitude=0.05)
+
+        X = torch.cat((X, X_new), 0)
+
+    return model
+
+
+substitute_model = jacobian_based_augmentation(X)
+
+# model = YourModel()
+# input_data = torch.randn(
+#     batch_size, input_channels, input_height, input_width, requires_grad=True
+# )
+# output = model(input_data)
+# output.sum().backward()
+# gradients = input_data.grad
+# transformed_data = apply_transformations(input_data, gradients)
+# augmented_samples = transformed_data.detach()
