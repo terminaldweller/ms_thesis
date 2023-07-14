@@ -11,6 +11,8 @@ import torch.optim as optim
 
 from torchattacks.attack import Attack
 
+torch.autograd.set_detect_anomaly(True)
+
 
 class JSMA(Attack):
     r"""
@@ -78,24 +80,6 @@ class JSMA(Attack):
 
         adv_images = torch.clamp(adv_images, min=0, max=1)
         return adv_images
-
-    def compute_jacobian(self, image):
-        var_image = image.clone().detach()
-        var_image.requires_grad = True
-        output = self.get_logits(var_image)
-
-        num_features = int(np.prod(var_image.shape[1:]))
-        jacobian = torch.zeros([output.shape[1], num_features])
-        for i in range(output.shape[1]):
-            if var_image.grad is not None:
-                var_image.grad.zero_()
-            output[0][i].backward(retain_graph=True)
-            # Copy the derivative to the target place
-            jacobian[i] = (
-                var_image.grad.squeeze().view(-1, num_features).clone()
-            )  # nopep8
-
-        return jacobian.to(self.device)
 
     @torch.no_grad()
     def saliency_map(
@@ -218,6 +202,51 @@ class JSMA(Attack):
         adv_image = var_image
         return adv_image
 
+    def compute_jacobian(self, image):
+        var_image = image.clone().detach()
+        var_image.requires_grad = True
+        output = self.get_logits(var_image)
+
+        num_features = int(np.prod(var_image.shape[1:]))
+        jacobian = torch.zeros([output.shape[1], num_features])
+        for i in range(output.shape[1]):
+            if var_image.grad is not None:
+                var_image.grad.zero_()
+            output[0][i].backward(retain_graph=True)
+            # Copy the derivative to the target place
+            jacobian[i] = (
+                var_image.grad.squeeze().view(-1, num_features).clone()
+            )  # nopep8
+
+        return jacobian.to(self.device)
+
+
+def compute_jacobian(inputs, model, unit_vectors):
+    jacobian_rows = [
+        torch.autograd.grad(model(inputs).squeeze(1), inputs, vec)[0]
+        for vec in unit_vectors
+    ]
+
+    return torch.stack(jacobian_rows)
+
+
+def augment(inputs, model, magnitude=0.05):
+    xp = inputs.clone().requires_grad_()
+    unit_vectors = torch.eye(inputs.shape[0])
+
+    jacobian = compute_jacobian(inputs, model, unit_vectors)
+
+    print(jacobian.shape)
+    print(jacobian)
+
+    # inputs_clone = inputs.clone().detach()
+    # inputs_clone.requires_grad = True
+
+    # abs_gradients = torch.abs(gradients)
+    # scaled_gradients = magnitude * abs_gradients
+    # augmented_inputs = input_data + scaled_gradients
+    # return augmented_inputs
+
 
 class Oracle(nn.Module):
     def __init__(self, input_size):
@@ -315,12 +344,7 @@ class BalancedDataset(Dataset):
 # to craft adversarial examples
 
 
-def augment(inputs, gradients, magnitude=0.05):
-    # FIXME-we probably should change this for AJSMA
-    abs_gradients = torch.abs(gradients)
-    scaled_gradients = magnitude * abs_gradients
-    augmented_inputs = input_data + scaled_gradients
-    return augmented_inputs
+batch_size = 32
 
 
 def train_loop(X, Y, num_epochs):
@@ -328,7 +352,7 @@ def train_loop(X, Y, num_epochs):
     criterion = nn.BCELoss()
     optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
     train_dataset = BalancedDataset(X, Y)
-    data_loader = DataLoader(train_dataset, batch_size=32, shuffle=False)
+    data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     train_losses: typing.List[float] = []
     valid_losses: typing.List[float] = []
     fig, ax = plt.subplots()
@@ -336,6 +360,7 @@ def train_loop(X, Y, num_epochs):
         train_loss = 0.0
         valid_loss = 0.0
         running_loss = 0.0
+
         sub_model.train()
         for inputs, labels in data_loader:
             optimizer.zero_grad()
@@ -347,7 +372,20 @@ def train_loop(X, Y, num_epochs):
             loss = criterion(outputs, labels.unsqueeze(1))
             # loss = criterion(outputs, labels)
 
+            # loss.backward(retain_graph=True)
             loss.backward()
+
+            # print(f"outputs_shape: {outputs.shape}")
+            # outputs_flat = outputs.view(-1)
+            # print(f"flat_size: {outputs_flat.shape}")
+            # identity_matrix = torch.eye(outputs_flat.size(0))
+            # identity_matrix = torch.eye(outputs_flat.size(0)).repeat(batch_size, 1, 1)
+            # print(f"identity_matrix_size: {identity_matrix.shape}")
+            # jacobian = torch.autograd.grad(
+            #     outputs_flat, X, grad_outputs=identity_matrix, retain_graph=True
+            # )[0]
+            # print(jacobian)
+
             optimizer.step()
 
             train_loss += loss.item() * inputs.size(0)
@@ -380,17 +418,17 @@ def train_loop(X, Y, num_epochs):
 
     plt.savefig("/opt/app/data/model_train_progress.png")
     plt.show()
-    return model
+    return sub_model
 
 
 x, y = pickle.load(open(file_path + "/oracle_data.pkl", "rb"))
 x = x.sample(frac=0.003)
 y = y.sample(frac=0.003)
 print(x.shape, y.shape)
-# X = torch.from_numpy(x.values).type(torch.float)
-# Y = torch.from_numpy(y.values).type(torch.float)
-X = torch.tensor(x.values, requires_grad=True).type(torch.float)
-Y = torch.tensor(y.values).type(torch.float)
+X = torch.from_numpy(x.values).type(torch.float)
+Y = torch.from_numpy(y.values).type(torch.float)
+# X = torch.tensor(x.values, requires_grad=True).type(torch.float)
+# Y = torch.tensor(y.values).type(torch.float)
 
 rho = 10
 magnitude = 0.05
@@ -409,7 +447,7 @@ def jacobian_based_augmentation(X):
         model = train_loop(X, Y, 10)
         gradients = X.grad
 
-        X_new = augment(X, gradients, magnitude=0.05)
+        X_new = augment(X, model, magnitude=0.05)
 
         X = torch.cat((X, X_new), 0)
 
