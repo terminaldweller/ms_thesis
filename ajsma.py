@@ -222,32 +222,15 @@ class JSMA(Attack):
         return jacobian.to(self.device)
 
 
-def compute_jacobian(inputs, model):
-    # jacobian_rows = [
-    #     torch.autograd.grad(model(inputs).squeeze(1), inputs, vec)[0]
-    #     for vec in unit_vectors
-    # ]
-
-    # return torch.stack(jacobian_rows)
-    return autograd_func.jacobian(model, inputs)
-
-
 def augment(inputs, model, magnitude=0.05):
     xp = inputs.clone().requires_grad_()
-    # unit_vectors = torch.eye(inputs.shape[0])
-
-    jacobian = compute_jacobian(inputs, model)
-
+    jacobian = autograd_func.jacobian(model, xp)
     print(jacobian.shape)
-    print(jacobian)
 
-    # inputs_clone = inputs.clone().detach()
-    # inputs_clone.requires_grad = True
-
-    # abs_gradients = torch.abs(gradients)
-    # scaled_gradients = magnitude * abs_gradients
-    # augmented_inputs = input_data + scaled_gradients
-    # return augmented_inputs
+    abs_gradients = torch.abs(jacobian)
+    scaled_gradients = magnitude * abs_gradients
+    augmented_inputs = inputs + scaled_gradients
+    return augmented_inputs
 
 
 class Oracle(nn.Module):
