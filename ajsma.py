@@ -8,6 +8,7 @@ import typing
 import matplotlib.pyplot as plt  # for plotting
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
+import torch.autograd.functional as autograd_func
 
 from torchattacks.attack import Attack
 
@@ -221,20 +222,21 @@ class JSMA(Attack):
         return jacobian.to(self.device)
 
 
-def compute_jacobian(inputs, model, unit_vectors):
-    jacobian_rows = [
-        torch.autograd.grad(model(inputs).squeeze(1), inputs, vec)[0]
-        for vec in unit_vectors
-    ]
+def compute_jacobian(inputs, model):
+    # jacobian_rows = [
+    #     torch.autograd.grad(model(inputs).squeeze(1), inputs, vec)[0]
+    #     for vec in unit_vectors
+    # ]
 
-    return torch.stack(jacobian_rows)
+    # return torch.stack(jacobian_rows)
+    return autograd_func.jacobian(model, inputs)
 
 
 def augment(inputs, model, magnitude=0.05):
     xp = inputs.clone().requires_grad_()
-    unit_vectors = torch.eye(inputs.shape[0])
+    # unit_vectors = torch.eye(inputs.shape[0])
 
-    jacobian = compute_jacobian(inputs, model, unit_vectors)
+    jacobian = compute_jacobian(inputs, model)
 
     print(jacobian.shape)
     print(jacobian)
