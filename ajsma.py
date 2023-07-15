@@ -332,7 +332,7 @@ class BalancedDataset(Dataset):
 # to craft adversarial examples
 
 
-batch_size = 32
+batch_size = 1
 
 
 def train_loop(X, Y, num_epochs):
@@ -344,6 +344,7 @@ def train_loop(X, Y, num_epochs):
     train_losses: typing.List[float] = []
     valid_losses: typing.List[float] = []
     fig, ax = plt.subplots()
+    Z = torch.zeros(X.shape[0])
     for epoch in range(num_epochs):
         train_loss = 0.0
         valid_loss = 0.0
@@ -358,26 +359,21 @@ def train_loop(X, Y, num_epochs):
             if torch.isinf(outputs).any() or torch.isnan(outputs).any():
                 print("Model returned inf or nan values during evaluation.")
 
+            """
             jacobian = torch.zeros(batch_size, 197)
-            count = 0
-            for i in range(batch_size):
-                count += 1
-                print(f"count: {count}")
+            for i in range(inputs.shape[0]):
                 sub_model.zero_grad()
-                print(f"outputs_size: {outputs.shape}")
                 output_element = outputs.flatten()[i]
                 output_element.backward(retain_graph=True)
-                # print(
-                #     f"inputs_grad_flatten_shape: {inputs.grad.flatten(1).unsqueeze(1).shape}"
-                # )
-                # print(f"jacobian_i_shape: {jacobian[i,:].shape}")
                 jacobian[i, :] = inputs.grad.flatten(1)[i, :]
-            print(f"jacobian_shape {jacobian.shape}")
+                print(f"jacobian_shape {jacobian.shape}")
+                Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
+            """
 
-            loss = criterion(outputs, labels.unsqueeze(1))
             # loss = criterion(outputs, labels)
 
             # loss.backward(retain_graph=True)
+            loss = criterion(outputs, labels.unsqueeze(1))
             loss.backward()
 
             # print(f"outputs_shape: {outputs.shape}")
@@ -450,11 +446,22 @@ def jacobian_based_augmentation(X):
             print("Model returned inf or nan values during evaluation.")
 
         model = train_loop(X, Y, 10)
-        gradients = X.grad
+        # gradients = X.grad
+        X.requires_grad_()
+        outputs = model(X)
+        jacobian = torch.zeros(X.shape[0], 197)
+        for i in range(X.shape[0]):
+            model.zero_grad()
+            output_element = outputs.flatten()[i]
+            output_element.backward(retain_graph=True)
+            jacobian[i, :] = X.grad.flatten(1)[i, :]
+            # print(f"jacobian_shape {jacobian.shape}")
+            # Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
+        # X_new = augment(X, model, magnitude=0.05)
+        Z = X + magnitude * torch.sign(jacobian)
 
-        X_new = augment(X, model, magnitude=0.05)
-
-        X = torch.cat((X, X_new), 0)
+        # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
+        X = torch.cat((X, Z), 0)
         print("XXX one round finished XXX")
 
     return model
