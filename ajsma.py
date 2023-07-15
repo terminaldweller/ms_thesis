@@ -344,7 +344,7 @@ def train_loop(X, Y, num_epochs):
     train_losses: typing.List[float] = []
     valid_losses: typing.List[float] = []
     fig, ax = plt.subplots()
-    Z = torch.zeros(X.shape[0])
+    # Z = torch.zeros(X.shape[0])
     for epoch in range(num_epochs):
         train_loss = 0.0
         valid_loss = 0.0
@@ -353,7 +353,7 @@ def train_loop(X, Y, num_epochs):
         sub_model.train()
         for inputs, labels in data_loader:
             optimizer.zero_grad()
-            inputs.requires_grad_()
+            # inputs.requires_grad_()
 
             outputs = sub_model(inputs)
             if torch.isinf(outputs).any() or torch.isnan(outputs).any():
@@ -447,14 +447,15 @@ def jacobian_based_augmentation(X):
 
         model = train_loop(X, Y, 10)
         # gradients = X.grad
-        X.requires_grad_()
-        outputs = model(X)
+        X_grad = X.detach().requires_grad_()
+        # X.requires_grad_()
+        outputs = model(X_grad)
         jacobian = torch.zeros(X.shape[0], 197)
         for i in range(X.shape[0]):
             model.zero_grad()
             output_element = outputs.flatten()[i]
             output_element.backward(retain_graph=True)
-            jacobian[i, :] = X.grad.flatten(1)[i, :]
+            jacobian[i, :] = X_grad.grad.flatten(1)[i, :]
             # print(f"jacobian_shape {jacobian.shape}")
             # Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
         # X_new = augment(X, model, magnitude=0.05)
@@ -462,7 +463,7 @@ def jacobian_based_augmentation(X):
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
         X = torch.cat((X, Z), 0)
-        print("XXX one round finished XXX")
+        print(f"X_shape: {X.shape}")
 
     return model
 
