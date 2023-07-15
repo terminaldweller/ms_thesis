@@ -225,11 +225,14 @@ class JSMA(Attack):
 def augment(inputs, model, magnitude=0.05):
     xp = inputs.clone().requires_grad_()
     jacobian = autograd_func.jacobian(model, xp)
-    print(jacobian.shape)
+    print(f"jacobian_shape: {jacobian.shape}")
 
     abs_gradients = torch.abs(jacobian)
     scaled_gradients = magnitude * abs_gradients
-    augmented_inputs = inputs + scaled_gradients
+    print(
+        f"inputs_shape: {inputs.shape} -- grad_shape: {scaled_gradients.squeeze(1).shape}"
+    )
+    augmented_inputs = inputs + scaled_gradients.squeeze(1)
     return augmented_inputs
 
 
@@ -349,10 +352,27 @@ def train_loop(X, Y, num_epochs):
         sub_model.train()
         for inputs, labels in data_loader:
             optimizer.zero_grad()
+            inputs.requires_grad_()
 
             outputs = sub_model(inputs)
             if torch.isinf(outputs).any() or torch.isnan(outputs).any():
                 print("Model returned inf or nan values during evaluation.")
+
+            jacobian = torch.zeros(batch_size, 197)
+            count = 0
+            for i in range(batch_size):
+                count += 1
+                print(f"count: {count}")
+                sub_model.zero_grad()
+                print(f"outputs_size: {outputs.shape}")
+                output_element = outputs.flatten()[i]
+                output_element.backward(retain_graph=True)
+                # print(
+                #     f"inputs_grad_flatten_shape: {inputs.grad.flatten(1).unsqueeze(1).shape}"
+                # )
+                # print(f"jacobian_i_shape: {jacobian[i,:].shape}")
+                jacobian[i, :] = inputs.grad.flatten(1)[i, :]
+            print(f"jacobian_shape {jacobian.shape}")
 
             loss = criterion(outputs, labels.unsqueeze(1))
             # loss = criterion(outputs, labels)
@@ -435,6 +455,7 @@ def jacobian_based_augmentation(X):
         X_new = augment(X, model, magnitude=0.05)
 
         X = torch.cat((X, X_new), 0)
+        print("XXX one round finished XXX")
 
     return model
 
