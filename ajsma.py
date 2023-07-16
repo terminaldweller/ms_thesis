@@ -459,6 +459,12 @@ def jacobian_based_augmentation(X):
             # print(f"jacobian_shape {jacobian.shape}")
             # Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
         # X_new = augment(X, model, magnitude=0.05)
+        grads = X_grad.grad
+        abs_grads = torch.abs(grads)
+        max_grads, _ = torch.max(abs_grads, 1)
+        normalized_grads = max_grads / torch.max(max_grads)
+        saliency_map = normalized_grads.squeeze()
+        print(saliency_map)
         Z = X + magnitude * torch.sign(jacobian)
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
@@ -469,6 +475,7 @@ def jacobian_based_augmentation(X):
 
 
 substitute_model = jacobian_based_augmentation(X)
+torch.save(substitute_model.state_dict(), "/opt/app/data/Substitute_Model.pt")
 
 # model = YourModel()
 # input_data = torch.randn(
