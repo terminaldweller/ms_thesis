@@ -460,15 +460,17 @@ def jacobian_based_augmentation(X):
             # Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
         # X_new = augment(X, model, magnitude=0.05)
         grads = X_grad.grad
-        # print(f"grads_shape: {grads.shape}")
+        print(f"grads_shape: {grads.shape}")
         abs_grads = torch.abs(grads)
-        # print(f"abs_grads_shape: {abs_grads.shape}")
+        norm = torch.norm(abs_grads, p=1)
+        print(f"abs_grads_shape: {abs_grads.shape}")
         max_grads, _ = torch.max(abs_grads, 0)
-        # print(f"max_grads_shape: {max_grads.shape}")
-        normalized_grads = max_grads / torch.max(max_grads)
-        # print(f"normalized_grads_shape: {normalized_grads.shape}")
+        print(f"max_grads_shape: {max_grads.shape}")
+        # normalized_grads = abs_grads / max_grads
+        normalized_grads = abs_grads / norm
+        print(f"normalized_grads_shape: {normalized_grads.shape}")
         saliency_map = normalized_grads.squeeze()
-        # print(f"saliency_map: {saliency_map.shape}")
+        print(f"saliency_map: {saliency_map.shape}")
         Z = X + magnitude * torch.sign(jacobian)
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
