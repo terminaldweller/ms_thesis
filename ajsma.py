@@ -249,8 +249,8 @@ allowed_cols = [
     179,
 ]
 
-for i, col in enumerate(cols):
-    print(f"{col}: {i}")
+# for i, col in enumerate(cols):
+#     print(f"{col}: {i}")
 
 
 class JSMA(Attack):
@@ -710,6 +710,11 @@ def jacobian_based_augmentation(X):
         saliency_map = normalized_grads.squeeze()
         print(f"saliency_map: {saliency_map.shape}")
         Z = X + magnitude * torch.sign(jacobian)
+
+        saliency_map_limited = torch.index_select(
+            saliency_map, dim=1, index=torch.tensor(allowed_cols)
+        )
+        print(f"saliency_map_limited_shape: {saliency_map_limited.shape}")
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
         X = torch.cat((X, Z), 0)
