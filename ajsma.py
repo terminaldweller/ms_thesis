@@ -463,7 +463,7 @@ Y = torch.from_numpy(y.values).type(torch.float)
 # Y = torch.tensor(y.values).type(torch.float)
 
 rho = 10
-theta = 0.05
+theta = 1
 magnitude = 0.05
 
 
@@ -518,7 +518,7 @@ def jacobian_based_augmentation(X):
 
             out = oracle(X[i, :])
             purturbed_input = X[i, :].unsqueeze(0)
-            print(f"perturbation_single_shape: {purturbed_input.shape}")
+            # print(f"perturbation_single_shape: {purturbed_input.shape}")
             purturbed_input[0, feature_to_disturb_1] = (
                 purturbed_input[0, feature_to_disturb_1] + theta
             )
@@ -527,9 +527,12 @@ def jacobian_based_augmentation(X):
             )
             out_perturbed = oracle(purturbed_input)
 
-            print(out_perturbed, out)
-            if torch.sigmoid(out).item() != torch.sigmoid(out_perturbed).item():
-                print("yay")
+            # print(out_perturbed > 0.5, out > 0.5)
+            if (
+                torch.sigmoid(out > 0.5).item()
+                != torch.sigmoid(out_perturbed > 0.5).item()
+            ):
+                print("XXX")
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
         X = torch.cat((X, Z), 0)
