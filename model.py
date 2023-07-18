@@ -7,6 +7,8 @@ import seaborn as sns  # plotting
 from scipy import stats
 from tqdm import tqdm  # Progress bar
 import typing
+from torch.optim.lr_scheduler import StepLR
+from sklearn.metrics import f1_score
 
 import pickle  # To load data int disk
 
@@ -65,6 +67,8 @@ ohe_state = pickle.load(open(file_path + "/ohe_state.pkl", "rb"))
 x_train_csr = csr_matrix(x_train.values)
 
 col = x_train.columns
+for c in col:
+    print(c)
 
 # Creating sparse dataframe with x_train sparse matrix
 x_train = pd.DataFrame.sparse.from_spmatrix(x_train_csr, columns=col)
@@ -488,7 +492,7 @@ test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # batch_size = 64
 batch_size = 64
-num_epochs = 20
+num_epochs = 40
 data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
@@ -519,6 +523,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 #     avg_loss = running_loss / len(data_loader)
 #     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
 
+# scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
 train_losses: typing.List[float] = []
 valid_losses: typing.List[float] = []
 fig, ax = plt.subplots()
@@ -543,6 +548,7 @@ for epoch in range(num_epochs):
         train_loss += loss.item() * inputs.size(0)
         running_loss += loss.item()
 
+    # scheduler.step()
     avg_loss = running_loss / len(data_loader)
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss}")
     train_loss /= len(train_dataset)
@@ -577,12 +583,17 @@ torch.save(model.state_dict(), "/opt/app/data/Oracle_Adam.pt")
 model.eval()
 total_corrects = 0
 total_samples = 0
+all_labels = []
+all_predictions = []
 with torch.no_grad():
     for inputs, labels in test_loader:
         outputs = model(inputs)
         if torch.isinf(outputs).any() or torch.isnan(outputs).any():
             print("Model returned inf or nan values during evaluation.")
         predicted_labels = torch.round(outputs)
+
+        all_predictions.extend(predicted_labels.numpy())
+        all_labels.extend(labels.numpy())
         # print(f"input_shape: {inputs.shape} -- output_shape: {outputs.shape}")
         # print(f"predicted_shape: {predicted_labels.shape} -- lables_shape: {labels.shape}")
         correct = torch.sum((predicted_labels == labels)[:, 0])
@@ -590,6 +601,9 @@ with torch.no_grad():
         total_corrects += correct
         total_samples += sample_count
         # print(f"correct: {correct} -- samples: {sample_count}")
+
+f1 = f1_score(all_labels, all_predictions, average="weighted")
+print(f"F1-score: {f1:.4f}")
 
 print(f"total_corrects: {total_corrects}")
 print(f"total_samples: {total_samples}")
