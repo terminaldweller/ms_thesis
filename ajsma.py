@@ -10,9 +10,41 @@ from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 import torch.autograd.functional as autograd_func
 
+# import argparse
+
 from torchattacks.attack import Attack
 
 torch.autograd.set_detect_anomaly(True)
+
+
+# class Argparser:
+#     """Argparser class."""
+
+#     def __init__(self):
+#         self.parser = argparse.ArgumentParser()
+#         self.parser.add_argument(
+#             "--rho",
+#             "-r",
+#             type=float,
+#             help="number of iterations we will do for the JSMA",
+#             default=10,
+#         )
+#         self.parser.add_argument(
+#             "--theta",
+#             "-t",
+#             type=float,
+#             help="the amount of disturbance to add",
+#             default=1,
+#         )
+#         self.parser.add_argument(
+#             "--magnitude",
+#             "-m",
+#             type=float,
+#             help="lambda in JSMA",
+#             default=0.05,
+#         )
+#         self.args = self.parser.parse_args()
+
 
 cols = [
     "sttl",
@@ -462,12 +494,10 @@ Y = torch.from_numpy(y.values).type(torch.float)
 # X = torch.tensor(x.values, requires_grad=True).type(torch.float)
 # Y = torch.tensor(y.values).type(torch.float)
 
-rho = 10
-theta = 1
-magnitude = 0.05
 
-
-def jacobian_based_augmentation(X):
+def jacobian_based_augmentation(X, rho, theta, magnitude):
+    adversarial_counts = []
+    adversarial_counts_percentages = []
     model = Substitute_Model(197)
     for _ in range(0, rho):
         oracle_predictions = oracle(X)
@@ -511,6 +541,7 @@ def jacobian_based_augmentation(X):
         print(f"saliency_map_limited_shape: {saliency_map_limited.shape}")
         salient_features = torch.topk(saliency_map_limited, 2, dim=1, largest=True)
 
+        adversarial_count = 0
         for i in range(0, X.shape[0]):
             # print(salient_features[1][i].item)
             feature_to_disturb_1 = salient_features[1][i][0].item()
@@ -532,24 +563,88 @@ def jacobian_based_augmentation(X):
                 torch.sigmoid(out > 0.5).item()
                 != torch.sigmoid(out_perturbed > 0.5).item()
             ):
-                print("XXX")
+                adversarial_count += 1
+                # print("XXX")
+        print(f"adversarial_count: {adversarial_count}")
+        print(f"percent: {adversarial_count/X.shape[0]}")
+        adversarial_counts.append(adversarial_count)
+        adversarial_counts_percentages.append(adversarial_count / X.shape[0])
 
         # print(f"X_shape: {X.shape} -- X_new_shape: {X_new.shape}")
         X = torch.cat((X, Z), 0)
         print(f"X_shape: {X.shape}")
 
+    fig, ax = plt.subplots()
+    # ax.plot(range(1, rho + 1), adversarial_counts, label="Adversarial Example Count")
+    ax.plot(
+        range(1, rho + 1),
+        adversarial_counts_percentages,
+        label="Adversarial Examples %",
+    )
+    ax.set_xlabel("rho")
+    ax.set_ylabel("Adversarial Example Count")
+    ax.set_title(f"Theta = {theta} - lambda = {magnitude}")
+    ax.legend()
+    plt.pause(0.1)
+
+    plt.savefig(f"/opt/app/data/adv_count_{rho}_{theta}_{magnitude}.png")
+    plt.show()
+
     return model
 
 
-substitute_model = jacobian_based_augmentation(X)
-torch.save(substitute_model.state_dict(), "/opt/app/data/Substitute_Model.pt")
+def main() -> None:
+    # argparser = Argparser()
+    rho = 5
+    theta = 1
+    magnitude = 0.05
 
-# model = YourModel()
-# input_data = torch.randn(
-#     batch_size, input_channels, input_height, input_width, requires_grad=True
-# )
-# output = model(input_data)
-# output.sum().backward()
-# gradients = input_data.grad
-# transformed_data = apply_transformations(input_data, gradients)
-# augmented_samples = transformed_data.detach()
+    _ = jacobian_based_augmentation(X, 5, 1, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.02)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.02)
+
+    _ = jacobian_based_augmentation(X, 5, 1, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.05)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.05)
+
+    _ = jacobian_based_augmentation(X, 5, 1, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.1)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.1)
+
+    _ = jacobian_based_augmentation(X, 5, 1, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.2)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.2)
+
+    # torch.save(substitute_model.state_dict(), "/opt/app/data/Substitute_Model.pt")
+
+
+if __name__ == "__main__":
+    main()

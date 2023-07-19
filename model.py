@@ -492,7 +492,7 @@ test_dataset = torch.utils.data.TensorDataset(X_test, Y_test)
 
 # batch_size = 64
 batch_size = 64
-num_epochs = 40
+num_epochs = 400
 data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
@@ -566,13 +566,13 @@ for epoch in range(num_epochs):
         valid_loss /= len(test_dataset)
         valid_losses.append(valid_loss)
 
-    ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
-    ax.plot(range(1, epoch + 2), valid_losses, label="Validation Loss")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Loss")
-    ax.set_title("Training Progress")
-    ax.legend()
-    plt.pause(0.1)
+ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
+ax.plot(range(1, epoch + 2), valid_losses, label="Validation Loss")
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Loss")
+ax.set_title("Training Progress")
+ax.legend()
+plt.pause(0.1)
 
 plt.savefig("/opt/app/data/model_train_progress.png")
 plt.show()
