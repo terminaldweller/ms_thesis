@@ -341,6 +341,52 @@ class Substitute_Model(nn.Module):
         return x
 
 
+class RNNModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers):
+        super(RNNModel, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        out, _ = self.rnn(x, h0)
+        out = self.fc(out[:, -1, :])
+        out = self.sigmoid(out)
+        return out
+
+
+class CNNModel(nn.Module):
+    def __init__(self, input_size):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=3)
+        self.conv2 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool1d(kernel_size=2)
+        self.flatten = nn.Flatten()
+        # self.fc1 = nn.Linear(64 * ((input_size - 2) // 2 - 2), 64)
+        self.fc1 = nn.Linear(3008, 64)
+        self.fc2 = nn.Linear(64, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = x.unsqueeze(1)  # Add channel dimension (batch_size, channels, input_size)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.flatten(x)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.sigmoid(x)
+        return x
+
+
 file_path = "/opt/app/data"
 
 oracle = Oracle(197)
@@ -400,13 +446,15 @@ batch_size = 1
 
 def train_loop(X, Y, num_epochs):
     sub_model = Substitute_Model(197)
+    # sub_model = RNNModel(197, 32, 5)
+    # sub_model = CNNModel(197)
     criterion = nn.BCELoss()
     optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
     train_dataset = BalancedDataset(X, Y)
     data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     train_losses: typing.List[float] = []
     valid_losses: typing.List[float] = []
-    fig, ax = plt.subplots()
+    # fig, ax = plt.subplots()
     # Z = torch.zeros(X.shape[0])
     for epoch in range(num_epochs):
         train_loss = 0.0
@@ -422,33 +470,8 @@ def train_loop(X, Y, num_epochs):
             if torch.isinf(outputs).any() or torch.isnan(outputs).any():
                 print("Model returned inf or nan values during evaluation.")
 
-            """
-            jacobian = torch.zeros(batch_size, 197)
-            for i in range(inputs.shape[0]):
-                sub_model.zero_grad()
-                output_element = outputs.flatten()[i]
-                output_element.backward(retain_graph=True)
-                jacobian[i, :] = inputs.grad.flatten(1)[i, :]
-                print(f"jacobian_shape {jacobian.shape}")
-                Z = torch.cat((inputs, inputs + magnitude * torch.sign(jacobian)))
-            """
-
-            # loss = criterion(outputs, labels)
-
-            # loss.backward(retain_graph=True)
             loss = criterion(outputs, labels.unsqueeze(1))
             loss.backward()
-
-            # print(f"outputs_shape: {outputs.shape}")
-            # outputs_flat = outputs.view(-1)
-            # print(f"flat_size: {outputs_flat.shape}")
-            # identity_matrix = torch.eye(outputs_flat.size(0))
-            # identity_matrix = torch.eye(outputs_flat.size(0)).repeat(batch_size, 1, 1)
-            # print(f"identity_matrix_size: {identity_matrix.shape}")
-            # jacobian = torch.autograd.grad(
-            #     outputs_flat, X, grad_outputs=identity_matrix, retain_graph=True
-            # )[0]
-            # print(jacobian)
 
             optimizer.step()
 
@@ -460,28 +483,16 @@ def train_loop(X, Y, num_epochs):
         train_loss /= len(train_dataset)
         train_losses.append(train_loss)
 
-        # sub_model.eval()
-        # with torch.no_grad():
-        #     for inputs, lables in test_loader:
-        #         outputs = sub_model(inputs)
+        # ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
+        # ax.set_xlabel("Epoch")
+        # ax.set_ylabel("Loss")
+        # ax.set_title("Training Progress")
+        # ax.legend()
+        # plt.pause(0.1)
 
-        #         loss = criterion(outputs, lables.unsqueeze(1))
-
-        #         valid_loss += loss.item() * inputs.size(0)
-
-        #     valid_loss /= len(test_dataset)
-        #     valid_losses.append(valid_loss)
-
-        ax.plot(range(1, epoch + 2), train_losses, label="Train Loss")
-        # ax.plot(range(1, epoch + 2), valid_losses, label="Validation Loss")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("Loss")
-        ax.set_title("Training Progress")
-        ax.legend()
-        plt.pause(0.1)
-
-    plt.savefig("/opt/app/data/model_train_progress.png")
-    plt.show()
+    # plt.savefig("/opt/app/data/model_train_progress.png")
+    # plt.show()
+    # plt.close()
     return sub_model
 
 
@@ -495,7 +506,7 @@ Y = torch.from_numpy(y.values).type(torch.float)
 # Y = torch.tensor(y.values).type(torch.float)
 
 
-def jacobian_based_augmentation(X, rho, theta, magnitude):
+def jacobian_based_augmentation(X, rho, theta, magnitude, ax):
     adversarial_counts = []
     adversarial_counts_percentages = []
     model = Substitute_Model(197)
@@ -563,8 +574,14 @@ def jacobian_based_augmentation(X, rho, theta, magnitude):
                 torch.sigmoid(out > 0.5).item()
                 != torch.sigmoid(out_perturbed > 0.5).item()
             ):
-                adversarial_count += 1
-                # print("XXX")
+                if (
+                    abs(
+                        torch.norm(X[i, :].unsqueeze(0), p=0)
+                        - torch.norm(purturbed_input, p=0)
+                    )
+                    <= 5
+                ):
+                    adversarial_count += 1
         print(f"adversarial_count: {adversarial_count}")
         print(f"percent: {adversarial_count/X.shape[0]}")
         adversarial_counts.append(adversarial_count)
@@ -574,74 +591,98 @@ def jacobian_based_augmentation(X, rho, theta, magnitude):
         X = torch.cat((X, Z), 0)
         print(f"X_shape: {X.shape}")
 
-    fig, ax = plt.subplots()
-    # ax.plot(range(1, rho + 1), adversarial_counts, label="Adversarial Example Count")
     ax.plot(
         range(1, rho + 1),
         adversarial_counts_percentages,
-        label="Adversarial Examples %",
+        label=f"theta={theta}--lambda={magnitude}",
     )
-    ax.set_xlabel("rho")
-    ax.set_ylabel("Adversarial Example Count")
-    ax.set_title(f"Theta = {theta} - lambda = {magnitude}")
     ax.legend()
-    plt.pause(0.1)
-
-    plt.savefig(f"/opt/app/data/adv_count_{rho}_{theta}_{magnitude}.png")
-    plt.show()
+    plt.pause(0.01)
 
     return model
 
 
 def main() -> None:
     # argparser = Argparser()
-    rho = 5
-    theta = 1
-    magnitude = 0.05
+    # rho = 5
+    # theta = 1
+    # magnitude = 0.05
 
-    _ = jacobian_based_augmentation(X, 5, 1, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.95, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.85, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.75, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.70, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.65, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.15, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.1, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.05, 0.02)
-    _ = jacobian_based_augmentation(X, 5, 0.001, 0.02)
+    fig, ax = plt.subplots()
+    ax.set_xlabel("rho")
+    ax.set_ylabel("Adversarial Example Count %")
+    ax.set_title(f"lambda = 0.02")
+    ax.legend()
+    _ = jacobian_based_augmentation(X, 5, 1, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.02, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.02, ax)
+    plt.savefig(f"/opt/app/data/adv_count_MLP_02.png")
+    plt.show()
+    plt.close()
 
-    _ = jacobian_based_augmentation(X, 5, 1, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.95, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.85, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.75, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.70, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.65, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.15, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.1, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.05, 0.05)
-    _ = jacobian_based_augmentation(X, 5, 0.001, 0.05)
+    fig, ax = plt.subplots()
+    ax.set_xlabel("rho")
+    ax.set_ylabel("Adversarial Example Count")
+    ax.set_title(f"lambda = 0.05")
+    ax.legend()
+    _ = jacobian_based_augmentation(X, 5, 1, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.05, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.05, ax)
+    plt.savefig(f"/opt/app/data/adv_count_MLP_05.png")
+    plt.show()
+    plt.close()
 
-    _ = jacobian_based_augmentation(X, 5, 1, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.95, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.85, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.75, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.70, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.65, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.15, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.1, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.05, 0.1)
-    _ = jacobian_based_augmentation(X, 5, 0.001, 0.1)
+    fig, ax = plt.subplots()
+    ax.set_xlabel("rho")
+    ax.set_ylabel("Adversarial Example Count")
+    ax.set_title(f"lambda = 0.1")
+    ax.legend()
+    _ = jacobian_based_augmentation(X, 5, 1, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.1, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.1, ax)
+    plt.savefig(f"/opt/app/data/adv_count_MLP_1.png")
+    plt.show()
+    plt.close()
 
-    _ = jacobian_based_augmentation(X, 5, 1, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.95, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.85, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.75, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.70, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.65, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.15, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.1, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.05, 0.2)
-    _ = jacobian_based_augmentation(X, 5, 0.001, 0.2)
+    fig, ax = plt.subplots()
+    ax.set_xlabel("rho")
+    ax.set_ylabel("Adversarial Example Count")
+    ax.set_title(f"lambda = 0.2")
+    ax.legend()
+    _ = jacobian_based_augmentation(X, 5, 1, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.95, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.85, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.75, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.70, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.65, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.15, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.1, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.05, 0.2, ax)
+    _ = jacobian_based_augmentation(X, 5, 0.001, 0.2, ax)
+    plt.savefig(f"/opt/app/data/adv_count_MLP_2.png")
+    plt.show()
+    plt.close()
 
     # torch.save(substitute_model.state_dict(), "/opt/app/data/Substitute_Model.pt")
 
