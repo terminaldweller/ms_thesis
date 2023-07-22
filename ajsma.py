@@ -390,6 +390,98 @@ class CNNModel(nn.Module):
         return x
 
 
+class Generator(nn.Module):
+    def __init__(self, latent_dim, output_dim):
+        super(Generator, self).__init__()
+        self.latent_dim = latent_dim
+        self.output_dim = output_dim
+
+        self.model = nn.Sequential(
+            nn.Linear(self.latent_dim, 256),
+            nn.ReLU(True),
+            nn.Linear(256, 128),
+            nn.ReLU(True),
+            nn.Linear(128, self.output_dim),
+            nn.Tanh(),
+        )
+
+    def forward(self, z):
+        return self.model(z)
+
+
+class Discriminator(nn.Module):
+    def __init__(self, input_dim):
+        super(Discriminator, self).__init__()
+        self.input_dim = input_dim
+
+        self.model = nn.Sequential(
+            nn.Linear(self.input_dim, 128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+def train_gan(X, Y, num_epochs=100, batch_size=64, latent_dim=100, lr=0.0002):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Generate random data for training
+    num_samples = 10000
+    input_dim = 197
+    real_data = X
+    real_labels = Y
+
+    # Initialize the models and optimizers
+    generator = Generator(latent_dim, output_dim=input_dim).to(device)
+    discriminator = Discriminator(input_dim=input_dim).to(device)
+
+    criterion = nn.BCELoss()
+    gen_optimizer = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
+    dis_optimizer = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+
+    # Training loop
+    for epoch in range(num_epochs):
+        batch_size = 64
+        for i in range(0, num_samples, batch_size):
+            real_batch = real_data[i : i + batch_size].to(device)
+            label_real = real_labels[i : i + batch_size].to(device)
+            batch_size = real_batch.size(0)
+
+            # Train the Discriminator with real data
+            dis_optimizer.zero_grad()
+            output_real = discriminator(real_batch)
+            dis_loss_real = criterion(output_real, label_real.unsqueeze(1))
+            dis_loss_real.backward()
+
+            # Train the Discriminator with fake data from the Generator
+            noise = torch.randn(batch_size, latent_dim, device=device)
+            fake_batch = generator(noise).detach()
+            label_fake = torch.zeros(batch_size, 1, device=device)
+            output_fake = discriminator(fake_batch)
+            dis_loss_fake = criterion(output_fake, label_fake)
+            dis_loss_fake.backward()
+            dis_optimizer.step()
+
+            # Train the Generator to fool the Discriminator
+            gen_optimizer.zero_grad()
+            output_fake = discriminator(fake_batch)
+            gen_loss = criterion(output_fake, label_real.unsqueeze(1))
+            gen_loss.backward()
+            gen_optimizer.step()
+
+        # print(
+        #     f"Epoch [{epoch+1}/{num_epochs}] Discriminator Loss: {dis_loss_real+dis_loss_fake:.4f}, Generator Loss: {gen_loss:.4f}"
+        # )
+    torch.save(generator.state_dict(), "/opt/app/data/generator_weights.pth")
+
+    return discriminator
+
+
 file_path = "/opt/app/data"
 
 oracle = Oracle(197)
@@ -448,8 +540,8 @@ batch_size = 1
 
 
 def train_loop(X, Y, num_epochs):
-    # sub_model = Substitute_Model(197)
-    sub_model = RNNModel(197, 12, 3)
+    sub_model = Substitute_Model(197)
+    # sub_model = RNNModel(197, 12, 3)
     # sub_model = CNNModel(197)
     criterion = nn.BCELoss()
     optimizer = optim.Adam(sub_model.parameters(), lr=0.001)
@@ -520,7 +612,11 @@ def jacobian_based_augmentation(X, rho, theta, magnitude, ax):
         ):
             print("Model returned inf or nan values during evaluation.")
 
-        model = train_loop(X, Y, 10)
+        # model = train_gan(
+        #     X, Y, num_epochs=100, batch_size=64, latent_dim=100, lr=0.0002
+        # )
+        model = train_gan(X, Y)
+        # model = train_loop(X, Y, 10)
         # gradients = X.grad
         X_grad = X.detach().requires_grad_()
         # X.requires_grad_()
@@ -559,6 +655,7 @@ def jacobian_based_augmentation(X, rho, theta, magnitude, ax):
             # print(salient_features[1][i].item)
             feature_to_disturb_1 = salient_features[1][i][0].item()
             feature_to_disturb_2 = salient_features[1][i][1].item()
+            feature_to_disturb_3 = salient_features[1][i][1].item()
 
             out = oracle(X[i, :])
             purturbed_input = X[i, :].unsqueeze(0)
@@ -568,6 +665,9 @@ def jacobian_based_augmentation(X, rho, theta, magnitude, ax):
             )
             purturbed_input[0, feature_to_disturb_2] = (
                 purturbed_input[0, feature_to_disturb_2] + theta
+            )
+            purturbed_input[0, feature_to_disturb_3] = (
+                purturbed_input[0, feature_to_disturb_3] + theta
             )
             out_perturbed = oracle(purturbed_input)
 
@@ -610,68 +710,93 @@ def main() -> None:
     # theta = 1
     # magnitude = 0.05
 
-    fig, ax = plt.subplots()
-    ax.set_xlabel("rho")
-    ax.set_ylabel("Adversarial Example Count %")
-    ax.set_title(f"lambda = 0.02")
-    ax.legend()
-    _ = jacobian_based_augmentation(X, rho, 1, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.95, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.85, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.75, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.70, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.65, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.15, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.1, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.05, 0.02, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.001, 0.02, ax)
+    # fig, ax = plt.subplots()
+    # ax.set_xlabel("rho")
+    # ax.set_ylabel("Adversarial Example Count %")
+    # ax.set_title(f"lambda = 0.02")
+    # ax.legend()
+    # _ = jacobian_based_augmentation(X, rho, 1, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.95, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.85, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.75, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.70, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.65, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.15, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.1, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.05, 0.02, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.001, 0.02, ax)
     # plt.savefig(f"/opt/app/data/adv_count_MLP_02.png")
     # plt.savefig(f"/opt/app/data/adv_count_CNN_02.png")
-    plt.savefig(f"/opt/app/data/adv_count_RNN_02.png")
-    plt.show()
-    plt.close()
+    # plt.savefig(f"/opt/app/data/adv_count_RNN_02.png")
+    # plt.savefig(f"/opt/app/data/adv_count_MLP_02_3.png")
+    # plt.show()
+    # plt.close()
 
-    fig, ax = plt.subplots()
-    ax.set_xlabel("rho")
-    ax.set_ylabel("Adversarial Example Count")
-    ax.set_title(f"lambda = 0.05")
-    ax.legend()
-    _ = jacobian_based_augmentation(X, rho, 1, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.95, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.85, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.75, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.70, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.65, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.15, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.1, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.05, 0.05, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.001, 0.05, ax)
+    # fig, ax = plt.subplots()
+    # ax.set_xlabel("rho")
+    # ax.set_ylabel("Adversarial Example Count")
+    # ax.set_title(f"lambda = 0.05")
+    # ax.legend()
+    # _ = jacobian_based_augmentation(X, rho, 1, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.95, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.85, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.75, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.70, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.65, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.15, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.1, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.05, 0.05, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.001, 0.05, ax)
     # plt.savefig(f"/opt/app/data/adv_count_MLP_05.png")
     # plt.savefig(f"/opt/app/data/adv_count_CNN_05.png")
-    plt.savefig(f"/opt/app/data/adv_count_RNN_05.png")
-    plt.show()
-    plt.close()
+    # plt.savefig(f"/opt/app/data/adv_count_RNN_05.png")
+    # plt.savefig(f"/opt/app/data/adv_count_MLP_05_3.png")
+    # plt.show()
+    # plt.close()
 
-    fig, ax = plt.subplots()
-    ax.set_xlabel("rho")
-    ax.set_ylabel("Adversarial Example Count")
-    ax.set_title(f"lambda = 0.1")
-    ax.legend()
-    _ = jacobian_based_augmentation(X, rho, 1, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.95, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.85, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.75, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.70, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.65, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.15, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.1, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.05, 0.1, ax)
-    _ = jacobian_based_augmentation(X, rho, 0.001, 0.1, ax)
+    # fig, ax = plt.subplots()
+    # ax.set_xlabel("rho")
+    # ax.set_ylabel("Adversarial Example Count")
+    # ax.set_title(f"lambda = 0.1")
+    # ax.legend()
+    # _ = jacobian_based_augmentation(X, rho, 1, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.95, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.85, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.75, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.70, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.65, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.15, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.1, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.05, 0.1, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.001, 0.1, ax)
     # plt.savefig(f"/opt/app/data/adv_count_MLP_1.png")
     # plt.savefig(f"/opt/app/data/adv_count_CNN_1.png")
-    plt.savefig(f"/opt/app/data/adv_count_RNN_1.png")
-    plt.show()
-    plt.close()
+    # plt.savefig(f"/opt/app/data/adv_count_RNN_1.png")
+    # plt.savefig(f"/opt/app/data/adv_count_MLP_1_3.png")
+    # plt.show()
+    # plt.close()
+
+    # fig, ax = plt.subplots()
+    # ax.set_xlabel("rho")
+    # ax.set_ylabel("Adversarial Example Count")
+    # ax.set_title(f"lambda = 0.2")
+    # ax.legend()
+    # _ = jacobian_based_augmentation(X, rho, 1, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.95, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.85, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.75, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.70, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.65, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.15, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.1, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.05, 0.2, ax)
+    # _ = jacobian_based_augmentation(X, rho, 0.001, 0.2, ax)
+    # plt.savefig(f"/opt/app/data/adv_count_MLP_2.png")
+    # plt.savefig(f"/opt/app/data/adv_count_CNN_2.png")
+    # plt.savefig(f"/opt/app/data/adv_count_RNN_2.png")
+    # plt.savefig(f"/opt/app/data/adv_count_MLP_2_3.png")
+    # plt.show()
+    # plt.close()
 
     fig, ax = plt.subplots()
     ax.set_xlabel("rho")
@@ -688,9 +813,7 @@ def main() -> None:
     _ = jacobian_based_augmentation(X, rho, 0.1, 0.2, ax)
     _ = jacobian_based_augmentation(X, rho, 0.05, 0.2, ax)
     _ = jacobian_based_augmentation(X, rho, 0.001, 0.2, ax)
-    # plt.savefig(f"/opt/app/data/adv_count_MLP_2.png")
-    # plt.savefig(f"/opt/app/data/adv_count_CNN_2.png")
-    plt.savefig(f"/opt/app/data/adv_count_RNN_2.png")
+    plt.savefig(f"/opt/app/data/adv_count_GAN.png")
     plt.show()
     plt.close()
 
