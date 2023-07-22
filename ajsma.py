@@ -427,14 +427,15 @@ class Discriminator(nn.Module):
         return self.model(x)
 
 
-def train_gan(X, Y, num_epochs=100, batch_size=64, latent_dim=100, lr=0.0002):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def train_gan(X, Y, num_epochs=10, batch_size=64, latent_dim=100, lr=0.0002):
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cpu"
 
     # Generate random data for training
-    num_samples = 10000
+    num_samples = 6400
     input_dim = 197
-    real_data = X
-    real_labels = Y
+    train_dataset = BalancedDataset(X, Y)
+    data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize the models and optimizers
     generator = Generator(latent_dim, output_dim=input_dim).to(device)
@@ -446,22 +447,27 @@ def train_gan(X, Y, num_epochs=100, batch_size=64, latent_dim=100, lr=0.0002):
 
     # Training loop
     for epoch in range(num_epochs):
-        batch_size = 64
-        for i in range(0, num_samples, batch_size):
-            real_batch = real_data[i : i + batch_size].to(device)
-            label_real = real_labels[i : i + batch_size].to(device)
-            batch_size = real_batch.size(0)
+        # for i in range(0, num_samples, batch_size):
+        for inputs, labels in data_loader:
+            # real_batch = X[i : i + batch_size, :].to(device)
+            # label_real = Y[i : i + batch_size].to(device)
+            # size = real_batch.size(0)
+            # print(real_batch)
+            # print(label_real)
 
             # Train the Discriminator with real data
             dis_optimizer.zero_grad()
-            output_real = discriminator(real_batch)
-            dis_loss_real = criterion(output_real, label_real.unsqueeze(1))
+            output_real = discriminator(inputs)
+            # print(
+            #     f"output_real_shape = {output_real.shape} -- label_real_shape = {label_real.shape}"
+            # )
+            dis_loss_real = criterion(output_real, labels.unsqueeze(1))
             dis_loss_real.backward()
 
             # Train the Discriminator with fake data from the Generator
-            noise = torch.randn(batch_size, latent_dim, device=device)
+            noise = torch.randn(inputs.shape[0], latent_dim, device=device)
             fake_batch = generator(noise).detach()
-            label_fake = torch.zeros(batch_size, 1, device=device)
+            label_fake = torch.zeros(inputs.shape[0], 1, device=device)
             output_fake = discriminator(fake_batch)
             dis_loss_fake = criterion(output_fake, label_fake)
             dis_loss_fake.backward()
@@ -470,14 +476,14 @@ def train_gan(X, Y, num_epochs=100, batch_size=64, latent_dim=100, lr=0.0002):
             # Train the Generator to fool the Discriminator
             gen_optimizer.zero_grad()
             output_fake = discriminator(fake_batch)
-            gen_loss = criterion(output_fake, label_real.unsqueeze(1))
+            gen_loss = criterion(output_fake, labels.unsqueeze(1))
             gen_loss.backward()
             gen_optimizer.step()
 
         # print(
         #     f"Epoch [{epoch+1}/{num_epochs}] Discriminator Loss: {dis_loss_real+dis_loss_fake:.4f}, Generator Loss: {gen_loss:.4f}"
         # )
-    torch.save(generator.state_dict(), "/opt/app/data/generator_weights.pth")
+    # torch.save(generator.state_dict(), "/opt/app/data/generator_weights.pth")
 
     return discriminator
 
@@ -592,8 +598,10 @@ def train_loop(X, Y, num_epochs):
 
 
 x, y = pickle.load(open(file_path + "/oracle_data.pkl", "rb"))
-x = x.sample(frac=0.003)
-y = y.sample(frac=0.003)
+# x = x.sample(frac=0.003)
+# y = y.sample(frac=0.003)
+x = x.sample(frac=0.03)
+y = y.sample(frac=0.03)
 print(x.shape, y.shape)
 X = torch.from_numpy(x.values).type(torch.float)
 Y = torch.from_numpy(y.values).type(torch.float)
